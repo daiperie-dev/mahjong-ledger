@@ -6,13 +6,25 @@ const ROUNDS = ["東1局", "東2局", "東3局", "東4局", "南1局", "南2局"
 const HONBA_RON_POINTS = 300;
 const HONBA_TSUMO_POINTS = 100;
 const RIICHI_STICK_POINTS = 1000;
-const ADJUST_SCORE_VALUES = [1000, 500, 100];
-const CHILD_SCORE_PRESETS = [300, 400, 500, 600, 700, 800, 1000, 1300, 1600, 1800, 2000, 2600, 3200, 3900, 5200, 6400, 8000, 12000, 16000, 24000, 32000];
-const DEALER_SCORE_PRESETS = [500, 700, 800, 1000, 1200, 1300, 1600, 2000, 2600, 3900, 4000, 4800, 5800, 7700, 9600, 12000, 18000, 24000, 36000, 48000];
-const DEFAULT_PRESET_SCORE = 2000;
-const TSUMO_TEMPLATES = {
-  mangan: { label: "満ツモ", dealerWin: 4000, childDealer: 4000, childOther: 2000 },
-  haneman: { label: "跳ツモ", dealerWin: 6000, childDealer: 6000, childOther: 3000 },
+const SCORE_FU_OPTIONS = [20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110];
+const SCORE_HAN_OPTIONS = [
+  { value: "", label: "翻を選択" },
+  { value: "1", label: "1翻", han: 1 },
+  { value: "2", label: "2翻", han: 2 },
+  { value: "3", label: "3翻", han: 3 },
+  { value: "4", label: "4翻", han: 4 },
+  { value: "mangan", label: "満貫", limit: "mangan" },
+  { value: "haneman", label: "跳満(6・7翻)", limit: "haneman" },
+  { value: "baiman", label: "倍満(8〜10翻)", limit: "baiman" },
+  { value: "sanbaiman", label: "三倍満(11翻以上)", limit: "sanbaiman" },
+  { value: "yakuman", label: "役満", limit: "yakuman" },
+];
+const LIMIT_SCORES = {
+  mangan: { label: "満貫", childRon: 8000, dealerRon: 12000, childTsumoChild: 2000, childTsumoDealer: 4000, dealerTsumo: 4000 },
+  haneman: { label: "跳満", childRon: 12000, dealerRon: 18000, childTsumoChild: 3000, childTsumoDealer: 6000, dealerTsumo: 6000 },
+  baiman: { label: "倍満", childRon: 16000, dealerRon: 24000, childTsumoChild: 4000, childTsumoDealer: 8000, dealerTsumo: 8000 },
+  sanbaiman: { label: "三倍満", childRon: 24000, dealerRon: 36000, childTsumoChild: 6000, childTsumoDealer: 12000, dealerTsumo: 12000 },
+  yakuman: { label: "役満", childRon: 32000, dealerRon: 48000, childTsumoChild: 8000, childTsumoDealer: 16000, dealerTsumo: 16000 },
 };
 const WIND_LABELS = ["東", "南", "西", "北"];
 const DEFAULT_UMA = [30, 10, -10, -30];
@@ -83,7 +95,6 @@ const elements = {
 
 let state = loadState();
 let draft = createDraft(state);
-let scoreInputMode = "adjust";
 let archiveScope = "overall";
 
 applyTheme(localStorage.getItem(THEME_KEY) || "light");
@@ -151,8 +162,8 @@ function createDraft(sourceState) {
     actions: createActionMap(sourceState.players),
     deltas: createDeltaMap(sourceState.players),
     chipDeltas: createDeltaMap(sourceState.players),
-    scoreSigns: createSignMap(sourceState.players),
-    presetValues: createPresetValueMap(sourceState.players),
+    scoreHan: "",
+    scoreFu: 30,
     winScore: 0,
     memo: "",
     advanceRound: true,
@@ -286,44 +297,12 @@ function handleClick(event) {
     render();
   }
 
-  if (action === "set-score-mode") {
-    scoreInputMode = target.dataset.scoreMode || "adjust";
-    render();
-  }
-
-  if (action === "set-score-sign") {
-    if (playerId) {
-      draft.scoreSigns[playerId] = Number(target.dataset.scoreSign || 1) < 0 ? -1 : 1;
-    }
-    render();
-  }
-
-  if (action === "apply-tsumo-template") {
-    applyTsumoTemplate(target.dataset.template, playerId);
-    return;
-  }
-
   if (action === "toggle-call" || action === "toggle-riichi" || action === "toggle-tenpai") {
     const key = action === "toggle-call" ? "call" : action === "toggle-riichi" ? "riichi" : "tenpai";
     draft.actions[playerId][key] = !draft.actions[playerId][key];
     if (key === "riichi" && draft.actions[playerId].riichi) {
       draft.actions[playerId].tenpai = true;
     }
-    render();
-  }
-
-  if (action === "win-score-step") {
-    setWinScore(getWinScore() + value);
-    render();
-  }
-
-  if (action === "delta-preset-apply") {
-    setWinScore(getPresetValueByPlayerId(draft.winnerId));
-    render();
-  }
-
-  if (action === "win-score-clear") {
-    setWinScore(0);
     render();
   }
 
@@ -379,8 +358,13 @@ function handleChange(event) {
     render();
   }
 
-  if (target.matches("[data-win-score]")) {
-    setWinScore(target.value);
+  if (target.matches("[data-score-han]")) {
+    draft.scoreHan = target.value;
+    render();
+  }
+
+  if (target.matches("[data-score-fu]")) {
+    draft.scoreFu = normalizeFuValue(target.value);
     render();
   }
 
@@ -391,10 +375,6 @@ function handleChange(event) {
 
   if (target === elements.advanceRound) {
     draft.advanceRound = target.checked;
-  }
-
-  if (target.matches("[data-preset-slider]")) {
-    updatePresetSliderDisplay(target);
   }
 
   if (target.matches("[data-setting]")) {
@@ -418,16 +398,6 @@ function handleInput(event) {
   if (target === elements.memoInput) {
     draft.memo = target.value;
   }
-
-  if (target.matches("[data-win-score]")) {
-    draft.winScore = Math.max(0, normalizeScore(Number(target.value || 0)));
-    applyWinScoreDeltas();
-    updateScorePreviewDisplay();
-  }
-
-  if (target.matches("[data-preset-slider]")) {
-    updatePresetSliderDisplay(target);
-  }
 }
 
 function render() {
@@ -443,7 +413,6 @@ function render() {
   renderPlayers();
   renderSelectors();
   renderModeTabs();
-  renderScoreTabs();
   renderActions();
   renderDeltas();
   renderChipDeltas();
@@ -528,12 +497,6 @@ function renderModeTabs() {
   });
 }
 
-function renderScoreTabs() {
-  document.querySelectorAll("[data-action='set-score-mode']").forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.scoreMode === scoreInputMode));
-  });
-}
-
 function renderActions() {
   elements.actionGrid.innerHTML = state.players
     .map((player) => {
@@ -581,17 +544,9 @@ function renderDeltas() {
 function renderWinningScorePanel() {
   const winner = state.players.find((item) => item.id === draft.winnerId) || state.players[0];
   const winnerName = winner ? getPlayerOptionLabel(winner) : "";
-  const valueControl = scoreInputMode === "preset" && winner
-    ? renderPresetSlider(winner)
-    : renderWinScoreButtons();
-  const tsumoButtons = draft.result === "tsumo"
-    ? `
-      <div class="win-score-shortcuts">
-        <button type="button" data-action="apply-tsumo-template" data-template="mangan">満ツモ</button>
-        <button type="button" data-action="apply-tsumo-template" data-template="haneman">跳ツモ</button>
-      </div>
-    `
-    : "";
+  const scoreResult = getSelectedScoreResult();
+  const selectedHan = getScoreHanOption();
+  const usesFu = Boolean(selectedHan && !selectedHan.limit);
 
   return `
     <div class="win-score-panel">
@@ -600,21 +555,30 @@ function renderWinningScorePanel() {
           <span>和了者</span>
           <strong>${escapeHtml(winnerName)}</strong>
         </div>
-        ${tsumoButtons}
+        <div>
+          <span>和了区分</span>
+          <strong>${draft.result === "tsumo" ? "ツモ" : "ロン"}</strong>
+        </div>
       </div>
-      <label class="win-score-input">
-        <span>和了点</span>
-        <input
-          type="number"
-          inputmode="numeric"
-          step="100"
-          min="0"
-          data-win-score
-          value="${getWinScore()}"
-          aria-label="和了点"
-        />
-      </label>
-      ${valueControl}
+      <div class="score-table-picker">
+        <label>
+          <span>翻</span>
+          <select data-score-han aria-label="翻">
+            ${SCORE_HAN_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === draft.scoreHan ? "selected" : ""}>${option.label}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          <span>符</span>
+          <select data-score-fu aria-label="符" ${usesFu ? "" : "disabled"}>
+            ${SCORE_FU_OPTIONS.map((fu) => `<option value="${fu}" ${fu === normalizeFuValue(draft.scoreFu) ? "selected" : ""}>${fu}符</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="score-result-card ${scoreResult.valid ? "" : "invalid"}">
+        <span>自動点数</span>
+        <strong>${escapeHtml(scoreResult.valid ? scoreResult.display : scoreResult.message)}</strong>
+        <small>${escapeHtml(scoreResult.valid ? scoreResult.detail : "点数表にある組み合わせを選択してください")}</small>
+      </div>
       ${renderScorePreview()}
     </div>
   `;
@@ -632,61 +596,6 @@ function renderDrawScorePanel() {
       <p class="score-help">聴牌・立直を選んで局を確定すると、設定に応じて聴牌料と供託を自動補正します。</p>
       ${renderScorePreview()}
     </div>
-  `;
-}
-
-function renderWinScoreButtons() {
-  const valueButtons = ADJUST_SCORE_VALUES.map((value) => winScoreButtonTemplate(value)).join("");
-  const clearButton = `
-    <button
-      class="delta-button clear"
-      type="button"
-      data-action="win-score-clear"
-    >0</button>
-  `;
-
-  return `<div class="delta-buttons adjust">${valueButtons}${clearButton}</div>`;
-}
-
-function renderPresetSlider(player) {
-  const playerId = player.id;
-  const list = getScorePresetList(player);
-  const index = getPresetIndexForPlayer(player);
-  const value = list[index] || list[0] || DEFAULT_PRESET_SCORE;
-  const maxIndex = Math.max(0, list.length - 1);
-  const progress = maxIndex > 0 ? (index / maxIndex) * 100 : 0;
-
-  return `
-    <div class="preset-slider">
-      <button
-        class="delta-button preset-apply positive"
-        type="button"
-        data-action="delta-preset-apply"
-        data-player-id="${playerId}"
-      >${formatNumber(value)}</button>
-      <input
-        type="range"
-        min="0"
-        max="${maxIndex}"
-        step="1"
-        value="${index}"
-        data-preset-slider="${playerId}"
-        style="--preset-progress: ${progress}%"
-        aria-valuetext="${formatNumber(value)}"
-        aria-label="${escapeHtml(player.name)}の定番点"
-      />
-    </div>
-  `;
-}
-
-function winScoreButtonTemplate(value) {
-  return `
-    <button
-      class="delta-button positive"
-      type="button"
-      data-action="win-score-step"
-      data-value="${value}"
-    >${formatNumber(value)}</button>
   `;
 }
 
@@ -711,35 +620,6 @@ function renderScorePreviewItems() {
       `;
     })
     .join("");
-}
-
-function updateScorePreviewDisplay() {
-  const preview = document.querySelector(".score-preview");
-  if (preview) {
-    preview.innerHTML = renderScorePreviewItems();
-  }
-}
-
-function applyTsumoTemplate(templateKey, playerId = "") {
-  const template = TSUMO_TEMPLATES[templateKey];
-  if (!template) {
-    return;
-  }
-
-  const winnerId = playerId || draft.winnerId || (state.players[0] ? state.players[0].id : "");
-  if (!winnerId) {
-    window.alert("ツモ者を選んでください。");
-    return;
-  }
-
-  draft.result = "tsumo";
-  draft.winnerId = winnerId;
-  draft.loserId = "";
-  setWinScore(getTsumoTemplateScore(template, winnerId));
-  if (!draft.memo.trim() || Object.values(TSUMO_TEMPLATES).some((item) => item.label === draft.memo.trim())) {
-    draft.memo = template.label;
-  }
-  render();
 }
 
 function renderChipDeltas() {
@@ -1230,9 +1110,13 @@ function saveHand() {
 }
 
 function syncDraftFromControls() {
-  const winScoreInput = document.querySelector("[data-win-score]");
-  if (winScoreInput) {
-    draft.winScore = Math.max(0, normalizeScore(Number(winScoreInput.value || 0)));
+  const hanSelect = document.querySelector("[data-score-han]");
+  const fuSelect = document.querySelector("[data-score-fu]");
+  if (hanSelect) {
+    draft.scoreHan = hanSelect.value;
+  }
+  if (fuSelect) {
+    draft.scoreFu = normalizeFuValue(fuSelect.value);
   }
   ensureRonLoser();
   applyWinScoreDeltas();
@@ -1362,8 +1246,16 @@ function validateDraft() {
     return false;
   }
 
+  if (isWinningResult()) {
+    const scoreResult = getSelectedScoreResult();
+    if (!scoreResult.valid) {
+      window.alert(scoreResult.message);
+      return false;
+    }
+  }
+
   if (isWinningResult() && getSetting("safetyZeroWin") && sumAbsDeltas(draft.deltas) === 0) {
-    window.alert("ロン/ツモが選ばれていますが、点数差がすべて0です。点数を入力してください。");
+    window.alert("ロン/ツモが選ばれていますが、点数差がすべて0です。翻・符を選択してください。");
     return false;
   }
 
@@ -1499,7 +1391,6 @@ function deleteAllData() {
   state = createInitialState();
   draft = createDraft(state);
   archiveScope = "overall";
-  scoreInputMode = "adjust";
   saveState();
   render();
 }
@@ -1708,7 +1599,7 @@ async function shareSnapshotLink() {
 }
 
 function buildShareUrl() {
-  const url = new URL("./share.html?v=18", window.location.href);
+  const url = new URL("./share.html?v=19", window.location.href);
   url.hash = `data=${encodeSharePayload(createShareSnapshot())}`;
   return url.toString();
 }
@@ -2412,20 +2303,6 @@ function createDeltaMap(players) {
   }, {});
 }
 
-function createSignMap(players) {
-  return players.reduce((map, player) => {
-    map[player.id] = 1;
-    return map;
-  }, {});
-}
-
-function createPresetValueMap(players) {
-  return players.reduce((map, player) => {
-    map[player.id] = DEFAULT_PRESET_SCORE;
-    return map;
-  }, {});
-}
-
 function ensureRonLoser() {
   if (draft.result !== "ron") {
     return;
@@ -2441,24 +2318,16 @@ function ensureRonLoser() {
   }
 }
 
-function getWinScore() {
-  return Math.max(0, normalizeScore(Number(draft.winScore || 0)));
-}
-
-function setWinScore(value) {
-  draft.winScore = Math.max(0, normalizeScore(Number(value || 0)));
-  applyWinScoreDeltas();
-}
-
 function applyWinScoreDeltas() {
   draft.deltas = createDeltaMap(state.players);
   if (!isWinningResult()) {
     return;
   }
 
-  const score = getWinScore();
+  const scoreResult = getSelectedScoreResult();
   const winnerId = draft.winnerId;
-  if (!winnerId || score <= 0) {
+  draft.winScore = scoreResult.valid ? scoreResult.totalGain : 0;
+  if (!winnerId || !scoreResult.valid) {
     return;
   }
 
@@ -2468,45 +2337,143 @@ function applyWinScoreDeltas() {
       return;
     }
 
-    draft.deltas[winnerId] = score;
-    draft.deltas[draft.loserId] = -score;
+    draft.deltas[winnerId] = scoreResult.totalGain;
+    draft.deltas[draft.loserId] = -scoreResult.totalGain;
     return;
   }
 
-  getTsumoPaymentsFromWinScore(winnerId, score).forEach((payment) => {
+  scoreResult.payments.forEach((payment) => {
     draft.deltas[payment.playerId] = -payment.value;
     draft.deltas[winnerId] += payment.value;
   });
 }
 
-function getTsumoPaymentsFromWinScore(winnerId, score) {
-  const dealerId = getDealerId();
-  const payerCount = Math.max(1, state.players.length - 1);
-  if (winnerId === dealerId) {
-    const payment = roundUpToHundred(score / payerCount);
-    return state.players
-      .filter((player) => player.id !== winnerId)
-      .map((player) => ({ playerId: player.id, value: payment }));
+function getSelectedScoreResult() {
+  if (!isWinningResult()) {
+    return createInvalidScoreResult("");
   }
 
-  const dealerPayment = roundUpToHundred(score / 2);
-  const childPayers = state.players.filter((player) => player.id !== winnerId && player.id !== dealerId);
-  const childPayment = roundUpToHundred((score - dealerPayment) / Math.max(1, childPayers.length));
-  return state.players
-    .filter((player) => player.id !== winnerId)
-    .map((player) => ({
-      playerId: player.id,
-      value: player.id === dealerId ? dealerPayment : childPayment,
-    }));
+  const winnerId = draft.winnerId;
+  if (!winnerId) {
+    return createInvalidScoreResult("和了者を選択してください");
+  }
+
+  const hanOption = getScoreHanOption();
+  if (!hanOption || !hanOption.value) {
+    return createInvalidScoreResult("翻を選択してください");
+  }
+
+  const dealerId = getDealerId();
+  const winnerIsDealer = winnerId === dealerId;
+  const score = hanOption.limit
+    ? calculateLimitScore(hanOption.limit, winnerIsDealer)
+    : calculateStandardScore(hanOption.han, normalizeFuValue(draft.scoreFu), winnerIsDealer);
+  if (!score.valid) {
+    return score;
+  }
+
+  if (draft.result === "ron") {
+    const value = winnerIsDealer ? score.dealerRon : score.childRon;
+    return {
+      valid: true,
+      totalGain: value,
+      payments: [],
+      display: `${score.label} ${formatNumber(value)}`,
+      detail: `${winnerIsDealer ? "親" : "子"} / ロン / ${score.detail}`,
+    };
+  }
+
+  const payers = state.players.filter((player) => player.id !== winnerId);
+  const payments = payers.map((player) => ({
+    playerId: player.id,
+    value: winnerIsDealer
+      ? score.dealerTsumo
+      : player.id === dealerId
+        ? score.childTsumoDealer
+        : score.childTsumoChild,
+  }));
+  const totalGain = payments.reduce((sum, payment) => sum + payment.value, 0);
+  const display = winnerIsDealer
+    ? `${score.label} ${formatNumber(score.dealerTsumo)}オール`
+    : `${score.label} 子${formatNumber(score.childTsumoChild)} / 親${formatNumber(score.childTsumoDealer)}`;
+
+  return {
+    valid: true,
+    totalGain,
+    payments,
+    display,
+    detail: `${winnerIsDealer ? "親" : "子"} / ツモ / ${score.detail}`,
+  };
 }
 
-function getTsumoTemplateScore(template, winnerId) {
-  const payerCount = Math.max(1, state.players.length - 1);
-  if (winnerId === getDealerId()) {
-    return template.dealerWin * payerCount;
+function getScoreHanOption() {
+  return SCORE_HAN_OPTIONS.find((option) => option.value === String(draft.scoreHan || "")) || SCORE_HAN_OPTIONS[0];
+}
+
+function normalizeFuValue(value) {
+  const number = Number(value || 30);
+  return SCORE_FU_OPTIONS.includes(number) ? number : 30;
+}
+
+function calculateStandardScore(han, fu, winnerIsDealer) {
+  if (!isValidScoreCombination(han, fu, draft.result)) {
+    return createInvalidScoreResult(`${han}翻${fu}符は${draft.result === "ron" ? "ロン" : "ツモ"}では点数表にない組み合わせです`);
   }
 
-  return template.childDealer + template.childOther * Math.max(0, state.players.length - 2);
+  const base = fu * (2 ** (han + 2));
+  if (isKiriageMangan(han, fu)) {
+    return calculateLimitScore("mangan", winnerIsDealer, `${han}翻${fu}符`, "切り上げ満貫");
+  }
+
+  if (base >= 2000) {
+    return calculateLimitScore("mangan", winnerIsDealer, `${han}翻${fu}符`, "満貫");
+  }
+
+  return {
+    valid: true,
+    label: `${han}翻${fu}符`,
+    detail: `${han}翻${fu}符`,
+    childRon: roundUpToHundred(base * 4),
+    dealerRon: roundUpToHundred(base * 6),
+    childTsumoChild: roundUpToHundred(base),
+    childTsumoDealer: roundUpToHundred(base * 2),
+    dealerTsumo: roundUpToHundred(base * 2),
+  };
+}
+
+function calculateLimitScore(limitKey, winnerIsDealer, detailLabel = "", reason = "") {
+  const score = LIMIT_SCORES[limitKey];
+  if (!score) {
+    return createInvalidScoreResult("点数表にない翻数です");
+  }
+
+  const detail = [detailLabel || score.label, reason].filter(Boolean).join(" / ");
+  return {
+    valid: true,
+    label: reason === "切り上げ満貫" ? `${score.label}(切り上げ)` : score.label,
+    detail,
+    childRon: score.childRon,
+    dealerRon: score.dealerRon,
+    childTsumoChild: score.childTsumoChild,
+    childTsumoDealer: score.childTsumoDealer,
+    dealerTsumo: score.dealerTsumo,
+  };
+}
+
+function isValidScoreCombination(han, fu, result) {
+  if (fu === 20) {
+    return result === "tsumo" && han >= 2;
+  }
+
+  if (fu === 25) {
+    return han >= 2 && (result === "ron" || han >= 3);
+  }
+
+  return fu >= 30;
+}
+
+function isKiriageMangan(han, fu) {
+  return (han === 3 && fu === 60) || (han === 4 && fu === 30);
 }
 
 function roundUpToHundred(value) {
@@ -2518,95 +2485,15 @@ function roundUpToHundred(value) {
   return Math.ceil(number / 100) * 100;
 }
 
-function getDraftScoreSign(playerId) {
-  if (!draft.scoreSigns) {
-    draft.scoreSigns = createSignMap(state.players);
-  }
-
-  return Number(draft.scoreSigns[playerId] || 1) < 0 ? -1 : 1;
-}
-
-function getScorePresetList(player) {
-  const wind = getPlayerWindMeta(player);
-  return wind.isDealer ? DEALER_SCORE_PRESETS : CHILD_SCORE_PRESETS;
-}
-
-function getPresetIndexForPlayer(player) {
-  const list = getScorePresetList(player);
-  const value = getPresetValueByPlayerId(player.id);
-  return getNearestPresetIndex(list, value);
-}
-
-function getPresetValueByPlayerId(playerId) {
-  if (!draft.presetValues) {
-    draft.presetValues = createPresetValueMap(state.players);
-  }
-
-  const player = state.players.find((item) => item.id === playerId);
-  if (!player) {
-    return DEFAULT_PRESET_SCORE;
-  }
-
-  const list = getScorePresetList(player);
-  const value = Number(draft.presetValues[playerId] || DEFAULT_PRESET_SCORE);
-  return list[getNearestPresetIndex(list, value)] || list[0] || DEFAULT_PRESET_SCORE;
-}
-
-function updatePresetValueFromSlider(playerId, rawIndex) {
-  const player = state.players.find((item) => item.id === playerId);
-  if (!player) {
-    return;
-  }
-
-  if (!draft.presetValues) {
-    draft.presetValues = createPresetValueMap(state.players);
-  }
-
-  const list = getScorePresetList(player);
-  const index = Math.round(clamp(Number(rawIndex || 0), 0, Math.max(0, list.length - 1)));
-  draft.presetValues[playerId] = list[index] || DEFAULT_PRESET_SCORE;
-}
-
-function updatePresetSliderDisplay(slider) {
-  const playerId = slider.dataset.presetSlider;
-  const player = state.players.find((item) => item.id === playerId);
-  if (!player) {
-    return;
-  }
-
-  const list = getScorePresetList(player);
-  const maxIndex = Math.max(0, list.length - 1);
-  const index = Math.round(clamp(Number(slider.value || 0), 0, maxIndex));
-  const value = list[index] || list[0] || DEFAULT_PRESET_SCORE;
-  const progress = maxIndex > 0 ? (index / maxIndex) * 100 : 0;
-
-  updatePresetValueFromSlider(playerId, index);
-  if (slider.value !== String(index)) {
-    slider.value = String(index);
-  }
-  slider.style.setProperty("--preset-progress", `${progress}%`);
-  slider.setAttribute("aria-valuetext", formatNumber(value));
-
-  const button = slider.closest(".preset-slider")?.querySelector(".preset-apply");
-  if (button) {
-    button.textContent = formatNumber(value);
-  }
-}
-
-function getNearestPresetIndex(list, value) {
-  const target = Number(value || DEFAULT_PRESET_SCORE);
-  let nearestIndex = 0;
-  let nearestDistance = Number.POSITIVE_INFINITY;
-
-  list.forEach((item, index) => {
-    const distance = Math.abs(Number(item) - target);
-    if (distance < nearestDistance) {
-      nearestDistance = distance;
-      nearestIndex = index;
-    }
-  });
-
-  return nearestIndex;
+function createInvalidScoreResult(message) {
+  return {
+    valid: false,
+    totalGain: 0,
+    payments: [],
+    display: "",
+    detail: "",
+    message: message || "翻・符を選択してください",
+  };
 }
 
 function deepClone(value) {

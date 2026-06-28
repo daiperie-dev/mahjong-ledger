@@ -474,23 +474,11 @@ body[data-theme="dark"] .wind-chip.dealer {
   margin-bottom: 12px;
 }
 
-.score-control-bar {
-  margin-bottom: 8px;
-}
-
-.score-input-tabs {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, 1fr);
-}
-
-.mode-tabs button,
-.score-input-tabs button {
+.mode-tabs button {
   font-weight: 900;
 }
 
 .mode-tabs button[aria-pressed="true"],
-.score-input-tabs button[aria-pressed="true"],
 .toggle-button[aria-pressed="true"] {
   border-color: var(--accent-strong);
   background: var(--accent-soft);
@@ -679,7 +667,8 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
 }
 
 .win-score-head span,
-.win-score-input span {
+.score-table-picker span,
+.score-result-card span {
   display: block;
   color: var(--muted);
   font-size: 0.72rem;
@@ -695,40 +684,61 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   line-height: 1.15;
 }
 
-.win-score-shortcuts {
+.score-table-picker {
   display: grid;
-  grid-template-columns: repeat(2, minmax(72px, 1fr));
-  gap: 6px;
-  min-width: 156px;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 8px;
 }
 
-.win-score-shortcuts button {
-  min-height: 36px;
-  padding: 0 8px;
-  border-color: #d5bc88;
-  background: #fff2d8;
-  color: #7a4f05;
-  font-size: 0.78rem;
+.score-table-picker label {
+  display: grid;
+  gap: 4px;
+}
+
+.score-table-picker select {
+  min-height: 42px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.95rem;
   font-weight: 900;
 }
 
-body[data-theme="dark"] .win-score-shortcuts button {
-  background: #443216;
-  color: var(--gold);
+.score-table-picker select:disabled {
+  color: var(--muted);
+  opacity: 0.75;
 }
 
-.win-score-input {
+.score-result-card {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
 }
 
-.win-score-input input {
-  min-height: 42px;
-  text-align: right;
+.score-result-card strong {
+  color: var(--accent-strong);
   font-size: 1.15rem;
   font-weight: 950;
+}
+
+.score-result-card small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.score-result-card.invalid {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.score-result-card.invalid strong {
+  color: var(--danger);
 }
 
 .score-help {
@@ -1430,10 +1440,6 @@ body[data-theme="dark"] .win-score-shortcuts button {
     width: 100%;
   }
 
-  .score-control-bar {
-    grid-template-columns: 1fr;
-  }
-
   .round-toolbar,
   .round-adjusters {
     width: 100%;
@@ -1471,7 +1477,7 @@ body[data-theme="dark"] .win-score-shortcuts button {
     flex-direction: column;
   }
 
-  .win-score-shortcuts,
+  .score-table-picker,
   .score-preview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
