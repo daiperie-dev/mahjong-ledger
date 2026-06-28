@@ -286,7 +286,7 @@ function render(state, source) {
     currentScope === "daily"
       ? renderDailySummaries(matches)
       : rows.length
-        ? renderStandings(rows, medians)
+        ? `${currentScope === "today" ? renderDayScoreStrip(rows) : ""}${renderStandings(rows, medians)}`
         : renderEmpty(currentScope === "today" ? "当日の半荘がありません" : "保存済み半荘がありません");
   elements.standingsTable.scrollLeft = 0;
   elements.trendChart.innerHTML = currentScope !== "daily" && scopedMatches.length ? renderScoreTrend(scopedMatches) : "";
@@ -439,6 +439,7 @@ function renderDailySummaries(matches) {
               <span>${group.matches.length}半荘</span>
             </div>
           </div>
+          ${renderDayScoreStrip(rows)}
           <div class="daily-summary-rows">
             ${rows
               .map((row) => {
@@ -463,6 +464,21 @@ function renderDailySummaries(matches) {
       `;
     })
     .join("");
+}
+
+function renderDayScoreStrip(rows) {
+  if (!rows.length) {
+    return "";
+  }
+
+  return `
+    <div class="day-score-strip" aria-label="日内総合スコア">
+      <span>日内総合スコア</span>
+      ${rows
+        .map((row) => `<strong class="${toneClass(row.totalLeagueScore)}">${escapeHtml(row.name)} ${formatSigned(row.totalLeagueScore)}</strong>`)
+        .join("")}
+    </div>
+  `;
 }
 
 function renderScoreTrend(matches) {

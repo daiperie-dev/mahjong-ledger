@@ -153,6 +153,7 @@ function createDraft(sourceState) {
     chipDeltas: createDeltaMap(sourceState.players),
     scoreSigns: createSignMap(sourceState.players),
     presetValues: createPresetValueMap(sourceState.players),
+    winScore: 0,
     memo: "",
     advanceRound: true,
   };
@@ -280,7 +281,8 @@ function handleClick(event) {
 
   if (action === "set-result") {
     draft.result = target.dataset.result;
-    syncWinningPlayersFromDeltas();
+    ensureRonLoser();
+    applyWinScoreDeltas();
     render();
   }
 
@@ -310,22 +312,18 @@ function handleClick(event) {
     render();
   }
 
-  if (action === "delta-step") {
-    draft.deltas[playerId] = normalizeScore((draft.deltas[playerId] || 0) + value * getDraftScoreSign(playerId));
-    syncWinningPlayersFromDeltas();
+  if (action === "win-score-step") {
+    setWinScore(getWinScore() + value);
     render();
   }
 
   if (action === "delta-preset-apply") {
-    const presetValue = getPresetValueByPlayerId(playerId);
-    draft.deltas[playerId] = normalizeScore((draft.deltas[playerId] || 0) + presetValue * getDraftScoreSign(playerId));
-    syncWinningPlayersFromDeltas();
+    setWinScore(getPresetValueByPlayerId(draft.winnerId));
     render();
   }
 
-  if (action === "delta-clear") {
-    draft.deltas[playerId] = 0;
-    syncWinningPlayersFromDeltas();
+  if (action === "win-score-clear") {
+    setWinScore(0);
     render();
   }
 
@@ -370,15 +368,19 @@ function handleChange(event) {
 
   if (target === elements.winnerSelect) {
     draft.winnerId = target.value;
+    ensureRonLoser();
+    applyWinScoreDeltas();
+    render();
   }
 
   if (target === elements.loserSelect) {
     draft.loserId = target.value;
+    applyWinScoreDeltas();
+    render();
   }
 
-  if (target.matches("[data-delta-input]")) {
-    draft.deltas[target.dataset.deltaInput] = normalizeScore(Number(target.value || 0));
-    syncWinningPlayersFromDeltas();
+  if (target.matches("[data-win-score]")) {
+    setWinScore(target.value);
     render();
   }
 
@@ -415,6 +417,12 @@ function handleInput(event) {
 
   if (target === elements.memoInput) {
     draft.memo = target.value;
+  }
+
+  if (target.matches("[data-win-score]")) {
+    draft.winScore = Math.max(0, normalizeScore(Number(target.value || 0)));
+    applyWinScoreDeltas();
+    updateScorePreviewDisplay();
   }
 
   if (target.matches("[data-preset-slider]")) {
@@ -496,12 +504,17 @@ function renderSelectors() {
   const playerOptions = state.players
     .map((player) => `<option value="${player.id}">${escapeHtml(getPlayerOptionLabel(player))}</option>`)
     .join("");
+  ensureRonLoser();
+  const loserOptions = state.players
+    .filter((player) => player.id !== draft.winnerId)
+    .map((player) => `<option value="${player.id}">${escapeHtml(getPlayerOptionLabel(player))}</option>`)
+    .join("");
   const emptyOption = `<option value="">なし</option>`;
   const isDraw = draft.result === "draw";
   const hasLoser = draft.result === "ron";
 
   elements.winnerSelect.innerHTML = isDraw ? `${emptyOption}${playerOptions}` : playerOptions;
-  elements.loserSelect.innerHTML = hasLoser ? playerOptions : `${emptyOption}${playerOptions}`;
+  elements.loserSelect.innerHTML = hasLoser ? loserOptions : `${emptyOption}${playerOptions}`;
   elements.winnerSelect.value = isDraw ? "" : draft.winnerId;
   elements.loserSelect.value = hasLoser ? draft.loserId : "";
 
@@ -561,80 +574,74 @@ function renderActions() {
 }
 
 function renderDeltas() {
-  elements.deltaGrid.innerHTML = state.players
-    .map((player) => {
-      const value = draft.deltas[player.id] || 0;
-      const wind = getPlayerWindMeta(player);
-
-      return `
-        <div class="delta-row">
-          <span class="delta-name">
-            <span class="mini-wind ${wind.isDealer ? "dealer" : ""}">${wind.shortLabel}</span>
-            ${escapeHtml(player.name)}
-          </span>
-          <input
-            class="delta-input"
-            type="number"
-            inputmode="numeric"
-            step="100"
-            data-delta-input="${player.id}"
-            value="${value}"
-            aria-label="${escapeHtml(player.name)}の点数差"
-          />
-          ${renderDeltaButtons(player.id)}
-        </div>
-      `;
-    })
-    .join("");
+  applyWinScoreDeltas();
+  elements.deltaGrid.innerHTML = draft.result === "draw" ? renderDrawScorePanel() : renderWinningScorePanel();
 }
 
-function renderDeltaButtons(playerId) {
-  const player = state.players.find((item) => item.id === playerId);
-  const sign = getDraftScoreSign(playerId);
-  const valueControl = scoreInputMode === "preset" && player
-    ? renderPresetSlider(player)
-    : renderAdjustButtons(playerId);
-  const tsumoButtons = `
-    <div class="row-tsumo-shortcuts">
-      <button type="button" data-action="apply-tsumo-template" data-template="mangan" data-player-id="${playerId}">満ツモ</button>
-      <button type="button" data-action="apply-tsumo-template" data-template="haneman" data-player-id="${playerId}">跳ツモ</button>
-    </div>
-  `;
+function renderWinningScorePanel() {
+  const winner = state.players.find((item) => item.id === draft.winnerId) || state.players[0];
+  const winnerName = winner ? getPlayerOptionLabel(winner) : "";
+  const valueControl = scoreInputMode === "preset" && winner
+    ? renderPresetSlider(winner)
+    : renderWinScoreButtons();
+  const tsumoButtons = draft.result === "tsumo"
+    ? `
+      <div class="win-score-shortcuts">
+        <button type="button" data-action="apply-tsumo-template" data-template="mangan">満ツモ</button>
+        <button type="button" data-action="apply-tsumo-template" data-template="haneman">跳ツモ</button>
+      </div>
+    `
+    : "";
 
   return `
-    <div class="delta-controls">
-      <div class="delta-toolbar">
-        <div class="player-sign-tabs" role="group" aria-label="加減算">
-          <button
-            type="button"
-            data-action="set-score-sign"
-            data-player-id="${playerId}"
-            data-score-sign="-1"
-            aria-pressed="${sign < 0}"
-          >−</button>
-          <button
-            type="button"
-            data-action="set-score-sign"
-            data-player-id="${playerId}"
-            data-score-sign="1"
-            aria-pressed="${sign > 0}"
-          >＋</button>
+    <div class="win-score-panel">
+      <div class="win-score-head">
+        <div>
+          <span>和了者</span>
+          <strong>${escapeHtml(winnerName)}</strong>
         </div>
         ${tsumoButtons}
       </div>
+      <label class="win-score-input">
+        <span>和了点</span>
+        <input
+          type="number"
+          inputmode="numeric"
+          step="100"
+          min="0"
+          data-win-score
+          value="${getWinScore()}"
+          aria-label="和了点"
+        />
+      </label>
       ${valueControl}
+      ${renderScorePreview()}
     </div>
   `;
 }
 
-function renderAdjustButtons(playerId) {
-  const valueButtons = ADJUST_SCORE_VALUES.map((value) => deltaButtonTemplate(playerId, value)).join("");
+function renderDrawScorePanel() {
+  return `
+    <div class="win-score-panel draw">
+      <div class="win-score-head">
+        <div>
+          <span>流局</span>
+          <strong>聴牌選択から自動計算</strong>
+        </div>
+      </div>
+      <p class="score-help">聴牌・立直を選んで局を確定すると、設定に応じて聴牌料と供託を自動補正します。</p>
+      ${renderScorePreview()}
+    </div>
+  `;
+}
+
+function renderWinScoreButtons() {
+  const valueButtons = ADJUST_SCORE_VALUES.map((value) => winScoreButtonTemplate(value)).join("");
   const clearButton = `
     <button
       class="delta-button clear"
       type="button"
-      data-action="delta-clear"
-      data-player-id="${playerId}"
+      data-action="win-score-clear"
     >0</button>
   `;
 
@@ -648,12 +655,11 @@ function renderPresetSlider(player) {
   const value = list[index] || list[0] || DEFAULT_PRESET_SCORE;
   const maxIndex = Math.max(0, list.length - 1);
   const progress = maxIndex > 0 ? (index / maxIndex) * 100 : 0;
-  const tone = getDraftScoreSign(playerId) < 0 ? "negative" : "positive";
 
   return `
     <div class="preset-slider">
       <button
-        class="delta-button preset-apply ${tone}"
+        class="delta-button preset-apply positive"
         type="button"
         data-action="delta-preset-apply"
         data-player-id="${playerId}"
@@ -673,17 +679,45 @@ function renderPresetSlider(player) {
   `;
 }
 
-function deltaButtonTemplate(playerId, value) {
-  const tone = getDraftScoreSign(playerId) < 0 ? "negative" : "positive";
+function winScoreButtonTemplate(value) {
   return `
     <button
-      class="delta-button ${tone}"
+      class="delta-button positive"
       type="button"
-      data-action="delta-step"
-      data-player-id="${playerId}"
+      data-action="win-score-step"
       data-value="${value}"
     >${formatNumber(value)}</button>
   `;
+}
+
+function renderScorePreview() {
+  return `
+    <div class="score-preview" aria-label="点数差プレビュー">
+      ${renderScorePreviewItems()}
+    </div>
+  `;
+}
+
+function renderScorePreviewItems() {
+  return state.players
+    .map((player) => {
+      const delta = Number(draft.deltas[player.id] || 0);
+      const wind = getPlayerWindMeta(player);
+      return `
+        <span class="${toneClass(delta)}">
+          <b>${wind.shortLabel} ${escapeHtml(player.name)}</b>
+          ${formatSigned(delta)}
+        </span>
+      `;
+    })
+    .join("");
+}
+
+function updateScorePreviewDisplay() {
+  const preview = document.querySelector(".score-preview");
+  if (preview) {
+    preview.innerHTML = renderScorePreviewItems();
+  }
 }
 
 function applyTsumoTemplate(templateKey, playerId = "") {
@@ -698,34 +732,13 @@ function applyTsumoTemplate(templateKey, playerId = "") {
     return;
   }
 
-  const dealerId = getDealerId();
-  const winnerIsDealer = winnerId === dealerId;
-  let totalGain = 0;
-
   draft.result = "tsumo";
   draft.winnerId = winnerId;
   draft.loserId = "";
-  draft.deltas = createDeltaMap(state.players);
-
-  state.players.forEach((player) => {
-    if (player.id === winnerId) {
-      return;
-    }
-
-    const payment = winnerIsDealer
-      ? template.dealerWin
-      : player.id === dealerId
-        ? template.childDealer
-        : template.childOther;
-    draft.deltas[player.id] = -payment;
-    totalGain += payment;
-  });
-
-  draft.deltas[winnerId] = totalGain;
+  setWinScore(getTsumoTemplateScore(template, winnerId));
   if (!draft.memo.trim() || Object.values(TSUMO_TEMPLATES).some((item) => item.label === draft.memo.trim())) {
     draft.memo = template.label;
   }
-  syncWinningPlayersFromDeltas();
   render();
 }
 
@@ -864,6 +877,7 @@ function renderSummary() {
       <div class="summary-card"><span>${archiveScope === "today" ? "当日半荘" : "半荘数"}</span><strong>${scopedMatches.length}</strong></div>
       <div class="summary-card"><span>${archiveScope === "today" ? "対象日" : "最新"}</span><strong>${escapeHtml(archiveScope === "today" ? dayLabel : (latestMatch.endReason || "保存"))}</strong></div>
     </div>
+    ${archiveScope === "today" ? renderDayScoreStrip(rows) : ""}
     <div class="summary-table">
       ${rows
         .map(
@@ -941,6 +955,7 @@ function renderDailySummaries(matches, withDeleteButtons = false) {
             </div>
             ${withDeleteButtons ? `<button class="mini-delete-button danger" type="button" data-action="delete-day" data-day-key="${group.key}">日削除</button>` : ""}
           </div>
+          ${renderDayScoreStrip(rows)}
           <div class="summary-table">
             ${rows
               .map((row) => {
@@ -967,6 +982,21 @@ function renderDailySummaries(matches, withDeleteButtons = false) {
       `;
     })
     .join("");
+}
+
+function renderDayScoreStrip(rows) {
+  if (!rows.length) {
+    return "";
+  }
+
+  return `
+    <div class="day-score-strip" aria-label="日内総合スコア">
+      <span>日内総合スコア</span>
+      ${rows
+        .map((row) => `<strong class="${toneClass(row.totalLeagueScore)}">${escapeHtml(row.name)} ${formatSigned(row.totalLeagueScore)}</strong>`)
+        .join("")}
+    </div>
+  `;
 }
 
 function renderScoreTrend(matches) {
@@ -1200,13 +1230,15 @@ function saveHand() {
 }
 
 function syncDraftFromControls() {
-  document.querySelectorAll("[data-delta-input]").forEach((input) => {
-    draft.deltas[input.dataset.deltaInput] = normalizeScore(Number(input.value || 0));
-  });
+  const winScoreInput = document.querySelector("[data-win-score]");
+  if (winScoreInput) {
+    draft.winScore = Math.max(0, normalizeScore(Number(winScoreInput.value || 0)));
+  }
+  ensureRonLoser();
+  applyWinScoreDeltas();
   document.querySelectorAll("[data-chip-input]").forEach((input) => {
     draft.chipDeltas[input.dataset.chipInput] = normalizeChip(Number(input.value || 0));
   });
-  syncWinningPlayersFromDeltas();
   draft.memo = elements.memoInput.value;
   draft.advanceRound = elements.advanceRound.checked;
 }
@@ -1676,7 +1708,7 @@ async function shareSnapshotLink() {
 }
 
 function buildShareUrl() {
-  const url = new URL("./share.html?v=17", window.location.href);
+  const url = new URL("./share.html?v=18", window.location.href);
   url.hash = `data=${encodeSharePayload(createShareSnapshot())}`;
   return url.toString();
 }
@@ -2392,6 +2424,98 @@ function createPresetValueMap(players) {
     map[player.id] = DEFAULT_PRESET_SCORE;
     return map;
   }, {});
+}
+
+function ensureRonLoser() {
+  if (draft.result !== "ron") {
+    return;
+  }
+
+  if (!draft.winnerId && state.players[0]) {
+    draft.winnerId = state.players[0].id;
+  }
+
+  if (!draft.loserId || draft.loserId === draft.winnerId) {
+    const loser = state.players.find((player) => player.id !== draft.winnerId);
+    draft.loserId = loser ? loser.id : "";
+  }
+}
+
+function getWinScore() {
+  return Math.max(0, normalizeScore(Number(draft.winScore || 0)));
+}
+
+function setWinScore(value) {
+  draft.winScore = Math.max(0, normalizeScore(Number(value || 0)));
+  applyWinScoreDeltas();
+}
+
+function applyWinScoreDeltas() {
+  draft.deltas = createDeltaMap(state.players);
+  if (!isWinningResult()) {
+    return;
+  }
+
+  const score = getWinScore();
+  const winnerId = draft.winnerId;
+  if (!winnerId || score <= 0) {
+    return;
+  }
+
+  if (draft.result === "ron") {
+    ensureRonLoser();
+    if (!draft.loserId || draft.loserId === winnerId) {
+      return;
+    }
+
+    draft.deltas[winnerId] = score;
+    draft.deltas[draft.loserId] = -score;
+    return;
+  }
+
+  getTsumoPaymentsFromWinScore(winnerId, score).forEach((payment) => {
+    draft.deltas[payment.playerId] = -payment.value;
+    draft.deltas[winnerId] += payment.value;
+  });
+}
+
+function getTsumoPaymentsFromWinScore(winnerId, score) {
+  const dealerId = getDealerId();
+  const payerCount = Math.max(1, state.players.length - 1);
+  if (winnerId === dealerId) {
+    const payment = roundUpToHundred(score / payerCount);
+    return state.players
+      .filter((player) => player.id !== winnerId)
+      .map((player) => ({ playerId: player.id, value: payment }));
+  }
+
+  const dealerPayment = roundUpToHundred(score / 2);
+  const childPayers = state.players.filter((player) => player.id !== winnerId && player.id !== dealerId);
+  const childPayment = roundUpToHundred((score - dealerPayment) / Math.max(1, childPayers.length));
+  return state.players
+    .filter((player) => player.id !== winnerId)
+    .map((player) => ({
+      playerId: player.id,
+      value: player.id === dealerId ? dealerPayment : childPayment,
+    }));
+}
+
+function getTsumoTemplateScore(template, winnerId) {
+  const payerCount = Math.max(1, state.players.length - 1);
+  if (winnerId === getDealerId()) {
+    return template.dealerWin * payerCount;
+  }
+
+  return template.childDealer + template.childOther * Math.max(0, state.players.length - 2);
+}
+
+function roundUpToHundred(value) {
+  const number = Number(value || 0);
+  if (number <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(number / 100) * 100;
 }
 
 function getDraftScoreSign(playerId) {

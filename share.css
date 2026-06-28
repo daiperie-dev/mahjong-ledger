@@ -381,6 +381,42 @@ h2 {
   background: var(--surface-strong);
 }
 
+.day-score-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.day-score-strip span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.day-score-strip strong {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+
+.day-score-strip .plus {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.day-score-strip .minus {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .daily-summary-head {
   display: flex;
   align-items: center;
