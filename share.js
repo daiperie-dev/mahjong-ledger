@@ -259,26 +259,37 @@ function render(state, source) {
   const participantCount = rows.length || countCurrentPlayers(state.players);
   const latestMatch = scopedMatches[0] || matches[0] || null;
   const dayLabel = currentScope === "today" && latestMatch ? formatDateOnly(latestMatch.finishedAt) : "";
+  const dayGroups = currentScope === "daily" ? getMatchDayGroups(matches) : [];
 
   elements.sourceLabel.textContent = source.label;
   elements.sourceDetail.textContent = source.detail;
-  elements.standingsHeading.textContent = currentScope === "today" ? `当日順位${dayLabel ? ` ${dayLabel}` : ""}` : "総合順位";
+  elements.standingsHeading.textContent =
+    currentScope === "daily"
+      ? "日別戦績"
+      : currentScope === "today"
+        ? `当日順位${dayLabel ? ` ${dayLabel}` : ""}`
+        : "総合順位";
   elements.matchesHeading.textContent = currentScope === "today" ? "当日半荘" : "半荘一覧";
   elements.scopeButtons.forEach((button) => {
     button.setAttribute("aria-pressed", String((button.dataset.scope || "overall") === currentScope));
   });
   elements.summaryGrid.innerHTML = renderSummaryCards({
-    matchCount: scopedMatches.length,
+    matchCount: currentScope === "daily" ? dayGroups.length : scopedMatches.length,
     participantCount,
     latestAt: latestMatch ? latestMatch.finishedAt : state.createdAt,
     topName: rows[0] ? rows[0].name : "",
-    scopeLabel: currentScope === "today" ? "当日半荘" : "半荘数",
-    latestLabel: currentScope === "today" ? "対象日" : "最終更新",
-    latestValue: currentScope === "today" ? dayLabel : formatDate(latestMatch ? latestMatch.finishedAt : state.createdAt),
+    scopeLabel: currentScope === "today" ? "当日半荘" : currentScope === "daily" ? "日数" : "半荘数",
+    latestLabel: currentScope === "today" ? "対象日" : currentScope === "daily" ? "対象日数" : "最終更新",
+    latestValue: currentScope === "today" ? dayLabel : currentScope === "daily" ? `${dayGroups.length}日` : formatDate(latestMatch ? latestMatch.finishedAt : state.createdAt),
   });
-  elements.standingsTable.innerHTML = rows.length ? renderStandings(rows, medians) : renderEmpty(currentScope === "today" ? "当日の半荘がありません" : "保存済み半荘がありません");
+  elements.standingsTable.innerHTML =
+    currentScope === "daily"
+      ? renderDailySummaries(matches)
+      : rows.length
+        ? renderStandings(rows, medians)
+        : renderEmpty(currentScope === "today" ? "当日の半荘がありません" : "保存済み半荘がありません");
   elements.standingsTable.scrollLeft = 0;
-  elements.trendChart.innerHTML = scopedMatches.length ? renderScoreTrend(scopedMatches) : "";
+  elements.trendChart.innerHTML = currentScope !== "daily" && scopedMatches.length ? renderScoreTrend(scopedMatches) : "";
   elements.matchList.innerHTML = scopedMatches.length ? renderMatches(scopedMatches) : renderEmpty("半荘保存後にここへ反映されます");
 }
 
@@ -405,6 +416,50 @@ function renderMatches(matches) {
           </div>
           <div class="score-strip">${playerScores}</div>
         </article>
+      `;
+    })
+    .join("");
+}
+
+function renderDailySummaries(matches) {
+  const groups = getMatchDayGroups(matches);
+  if (groups.length === 0) {
+    return renderEmpty("日別に表示できる半荘がありません");
+  }
+
+  return groups
+    .map((group) => {
+      const rows = getAggregateRows(group.matches);
+      const medians = getRateMedians(rows);
+      return `
+        <section class="daily-summary">
+          <div class="daily-summary-head">
+            <div>
+              <strong>${escapeHtml(group.label)}</strong>
+              <span>${group.matches.length}半荘</span>
+            </div>
+          </div>
+          <div class="daily-summary-rows">
+            ${rows
+              .map((row) => {
+                const scoreClass = toneClass(row.totalLeagueScore);
+                const chipClass = toneClass(row.totalChipDiff);
+                return `
+                  <div class="daily-summary-row">
+                    <strong>${escapeHtml(row.name)}</strong>
+                    <span>${row.games}半荘</span>
+                    <span class="${scoreClass}">スコア${formatSigned(row.totalLeagueScore)}</span>
+                    <span class="${chipClass}">チップ${formatSigned(row.totalChipDiff)}</span>
+                    <span>平均${row.averageRank.toFixed(2)}位</span>
+                    ${dailyRateBadge("トップ", row.topRate, medians.topRate)}
+                    ${dailyRateBadge("連対", row.rentaiRate, medians.rentaiRate)}
+                    ${dailyRateBadge("4着回避", row.avoidLastRate, medians.avoidLastRate)}
+                  </div>
+                `;
+              })
+              .join("")}
+          </div>
+        </section>
       `;
     })
     .join("");
@@ -589,6 +644,27 @@ function getLatestMatchDayMatches(matches) {
   }
 
   return matches.filter((match) => getLocalDateKey(match.finishedAt) === latestKey);
+}
+
+function getMatchDayGroups(matches) {
+  const groups = new Map();
+
+  getSortedMatches(matches).forEach((match) => {
+    const key = getLocalDateKey(match.finishedAt);
+    if (!key) {
+      return;
+    }
+
+    const group = groups.get(key) || {
+      key,
+      label: formatDateOnly(match.finishedAt),
+      matches: [],
+    };
+    group.matches.push(match);
+    groups.set(key, group);
+  });
+
+  return [...groups.values()].sort((a, b) => b.key.localeCompare(a.key));
 }
 
 function getAggregateRows(matches) {
@@ -878,6 +954,10 @@ function toneClass(value) {
 
 function rateCell(value, median, lowerIsBetter = false) {
   return `<span class="${rateToneClass(value, median, lowerIsBetter)}">${formatRate(value)}</span>`;
+}
+
+function dailyRateBadge(label, value, median, lowerIsBetter = false) {
+  return `<span class="${rateToneClass(value, median, lowerIsBetter)}">${escapeHtml(label)}${formatRate(value)}</span>`;
 }
 
 function rateToneClass(value, median, lowerIsBetter = false) {

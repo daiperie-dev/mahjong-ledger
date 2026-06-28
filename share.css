@@ -248,7 +248,7 @@ h2 {
 
 .scope-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  grid-template-columns: repeat(3, minmax(64px, 1fr));
   gap: 8px;
 }
 
@@ -369,6 +369,61 @@ h2 {
 .rate-mid {
   color: var(--muted);
   font-weight: 850;
+}
+
+.daily-summary {
+  display: grid;
+  gap: 8px;
+  min-width: min(100%, 680px);
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+}
+
+.daily-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.daily-summary-head strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.98rem;
+}
+
+.daily-summary-head span {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.daily-summary-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.daily-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.daily-summary-row strong {
+  flex: 1 0 100%;
+  color: var(--ink);
 }
 
 .trend-chart {

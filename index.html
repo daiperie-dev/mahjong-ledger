@@ -7,7 +7,7 @@
     <title>Mahjong Ledger</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=14" />
+    <link rel="stylesheet" href="./styles.css?v=15" />
   </head>
   <body>
     <div class="app-shell">
@@ -105,9 +105,19 @@
           </div>
 
           <div class="action-grid" id="actionGrid" aria-label="行動"></div>
-          <div class="score-input-tabs" role="group" aria-label="点数入力">
-            <button type="button" data-action="set-score-mode" data-score-mode="adjust">微調整</button>
-            <button type="button" data-action="set-score-mode" data-score-mode="preset">定番</button>
+          <div class="score-control-bar">
+            <div class="score-input-tabs" role="group" aria-label="点数入力">
+              <button type="button" data-action="set-score-mode" data-score-mode="adjust">微調整</button>
+              <button type="button" data-action="set-score-mode" data-score-mode="preset">定番</button>
+            </div>
+            <div class="score-sign-tabs" role="group" aria-label="加減算">
+              <button type="button" data-action="set-score-sign" data-score-sign="-1">−</button>
+              <button type="button" data-action="set-score-sign" data-score-sign="1">＋</button>
+            </div>
+          </div>
+          <div class="tsumo-shortcuts" role="group" aria-label="ツモ点数自動入力">
+            <button type="button" data-action="apply-tsumo-template" data-template="mangan">満ツモ</button>
+            <button type="button" data-action="apply-tsumo-template" data-template="haneman">跳ツモ</button>
           </div>
           <div class="delta-grid" id="deltaGrid" aria-label="点数差"></div>
           <div class="chip-grid" id="chipGrid" aria-label="チップ差"></div>
@@ -148,6 +158,7 @@
             <div class="archive-scope-tabs" role="tablist" aria-label="成績表示">
               <button type="button" data-archive-scope="overall" aria-pressed="true">総合</button>
               <button type="button" data-archive-scope="today" aria-pressed="false">当日</button>
+              <button type="button" data-archive-scope="daily" aria-pressed="false">日別</button>
             </div>
           </div>
           <div class="summary-stats" id="summaryStats"></div>
@@ -163,10 +174,11 @@
             </div>
           </div>
           <div class="settings-grid" id="settingsGrid"></div>
+          <div class="danger-zone" id="dangerZone"></div>
         </section>
       </main>
     </div>
 
-    <script src="./app.js?v=14" defer></script>
+    <script src="./app.js?v=15" defer></script>
   </body>
 </html>

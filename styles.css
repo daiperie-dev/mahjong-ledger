@@ -474,24 +474,66 @@ body[data-theme="dark"] .wind-chip.dealer {
   margin-bottom: 12px;
 }
 
-.score-input-tabs {
+.score-control-bar {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) 116px;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.score-input-tabs,
+.score-sign-tabs {
+  display: grid;
+  gap: 8px;
+}
+
+.score-input-tabs {
   grid-template-columns: repeat(2, 1fr);
+}
+
+.score-sign-tabs {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.tsumo-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 10px;
 }
 
 .mode-tabs button,
-.score-input-tabs button {
+.score-input-tabs button,
+.score-sign-tabs button,
+.tsumo-shortcuts button {
   font-weight: 900;
 }
 
 .mode-tabs button[aria-pressed="true"],
 .score-input-tabs button[aria-pressed="true"],
+.score-sign-tabs button[aria-pressed="true"],
 .toggle-button[aria-pressed="true"] {
   border-color: var(--accent-strong);
   background: var(--accent-soft);
   color: var(--accent-strong);
+}
+
+.score-sign-tabs button[data-score-sign="-1"][aria-pressed="true"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.tsumo-shortcuts button {
+  min-height: 38px;
+  border-color: #d5bc88;
+  background: #fff2d8;
+  color: #7a4f05;
+}
+
+body[data-theme="dark"] .tsumo-shortcuts button {
+  background: #443216;
+  color: var(--gold);
 }
 
 .selector-grid {
@@ -555,7 +597,7 @@ input {
 
 .delta-row {
   display: grid;
-  grid-template-columns: minmax(78px, 0.85fr) minmax(92px, 1fr) 224px;
+  grid-template-columns: minmax(78px, 0.85fr) minmax(92px, 1fr) 176px;
   gap: 8px;
   align-items: center;
 }
@@ -617,6 +659,10 @@ body[data-theme="dark"] .mini-wind.dealer {
 
 .delta-buttons.preset button {
   font-size: 0.72rem;
+}
+
+.delta-buttons.preset {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .delta-button.positive {
@@ -758,6 +804,16 @@ body[data-theme="dark"] .mini-wind.dealer {
   background: var(--surface-strong);
 }
 
+.history-headline,
+.match-headline,
+.daily-summary-head,
+.danger-zone-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .history-item strong {
   font-size: 0.95rem;
 }
@@ -790,7 +846,7 @@ body[data-theme="dark"] .mini-wind.dealer {
 
 .archive-scope-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(64px, 1fr));
+  grid-template-columns: repeat(3, minmax(64px, 1fr));
   gap: 8px;
 }
 
@@ -814,7 +870,9 @@ body[data-theme="dark"] .mini-wind.dealer {
 .summary-card,
 .match-item,
 .setting-item,
-.summary-row {
+.summary-row,
+.daily-summary,
+.danger-zone {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-strong);
@@ -845,6 +903,53 @@ body[data-theme="dark"] .mini-wind.dealer {
   display: grid;
   gap: 6px;
   margin-top: 8px;
+}
+
+.daily-summary {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.daily-summary-head strong,
+.danger-zone-head strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.daily-summary-head span,
+.danger-zone-head span {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.mini-delete-button {
+  min-height: 32px;
+  min-width: 68px;
+  padding: 0 8px;
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.mini-delete-button.danger,
+.match-headline .mini-delete-button {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.match-headline strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .summary-row {
@@ -991,6 +1096,13 @@ body[data-theme="dark"] .mini-wind.dealer {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.danger-zone {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+}
+
 .setting-item {
   display: flex;
   align-items: center;
@@ -1064,6 +1176,10 @@ body[data-theme="dark"] .mini-wind.dealer {
 
   .archive-scope-tabs {
     width: 100%;
+  }
+
+  .score-control-bar {
+    grid-template-columns: 1fr;
   }
 
   .round-toolbar,

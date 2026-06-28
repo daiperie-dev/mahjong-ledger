@@ -7,6 +7,10 @@ const HONBA_RON_POINTS = 300;
 const HONBA_TSUMO_POINTS = 100;
 const RIICHI_STICK_POINTS = 1000;
 const SCORE_PRESETS = [2000, 2600, 3900, 5800, 8000, 12000];
+const TSUMO_TEMPLATES = {
+  mangan: { label: "満ツモ", dealerWin: 4000, childDealer: 4000, childOther: 2000 },
+  haneman: { label: "跳ツモ", dealerWin: 6000, childDealer: 6000, childOther: 3000 },
+};
 const WIND_LABELS = ["東", "南", "西", "北"];
 const DEFAULT_UMA = [30, 10, -10, -30];
 const TOBASHI_BONUS = 10;
@@ -70,12 +74,14 @@ const elements = {
   trendChart: document.querySelector("#trendChart"),
   matchList: document.querySelector("#matchList"),
   settingsGrid: document.querySelector("#settingsGrid"),
+  dangerZone: document.querySelector("#dangerZone"),
   archiveScopeButtons: document.querySelectorAll("[data-archive-scope]"),
 };
 
 let state = loadState();
 let draft = createDraft(state);
 let scoreInputMode = "adjust";
+let scoreInputSign = 1;
 let archiveScope = "overall";
 
 applyTheme(localStorage.getItem(THEME_KEY) || "light");
@@ -279,6 +285,16 @@ function handleClick(event) {
     render();
   }
 
+  if (action === "set-score-sign") {
+    scoreInputSign = Number(target.dataset.scoreSign || 1) < 0 ? -1 : 1;
+    render();
+  }
+
+  if (action === "apply-tsumo-template") {
+    applyTsumoTemplate(target.dataset.template);
+    return;
+  }
+
   if (action === "toggle-call" || action === "toggle-riichi" || action === "toggle-tenpai") {
     const key = action === "toggle-call" ? "call" : action === "toggle-riichi" ? "riichi" : "tenpai";
     draft.actions[playerId][key] = !draft.actions[playerId][key];
@@ -289,7 +305,7 @@ function handleClick(event) {
   }
 
   if (action === "delta-step") {
-    draft.deltas[playerId] = normalizeScore((draft.deltas[playerId] || 0) + value);
+    draft.deltas[playerId] = normalizeScore((draft.deltas[playerId] || 0) + value * scoreInputSign);
     syncWinningPlayersFromDeltas();
     render();
   }
@@ -308,6 +324,22 @@ function handleClick(event) {
   if (action === "chip-clear") {
     draft.chipDeltas[playerId] = 0;
     render();
+  }
+
+  if (action === "delete-current-hand") {
+    deleteCurrentHand(target.dataset.handId);
+  }
+
+  if (action === "delete-match") {
+    deleteSavedMatch(target.dataset.matchId);
+  }
+
+  if (action === "delete-day") {
+    deleteSavedDay(target.dataset.dayKey);
+  }
+
+  if (action === "delete-all-data") {
+    deleteAllData();
   }
 }
 
@@ -464,6 +496,9 @@ function renderScoreTabs() {
   document.querySelectorAll("[data-action='set-score-mode']").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.scoreMode === scoreInputMode));
   });
+  document.querySelectorAll("[data-action='set-score-sign']").forEach((button) => {
+    button.setAttribute("aria-pressed", String(Number(button.dataset.scoreSign || 1) === scoreInputSign));
+  });
 }
 
 function renderActions() {
@@ -535,8 +570,7 @@ function renderDeltas() {
 
 function renderDeltaButtons(playerId) {
   const values = scoreInputMode === "preset" ? SCORE_PRESETS : [1000, 500, 100];
-  const negativeButtons = values.map((value) => deltaButtonTemplate(playerId, -value)).join("");
-  const positiveButtons = values.map((value) => deltaButtonTemplate(playerId, value)).join("");
+  const valueButtons = values.map((value) => deltaButtonTemplate(playerId, value)).join("");
   const clearButton = `
     <button
       class="delta-button clear"
@@ -546,12 +580,11 @@ function renderDeltaButtons(playerId) {
     >0</button>
   `;
 
-  return `<div class="delta-buttons ${scoreInputMode}">${negativeButtons}${positiveButtons}${clearButton}</div>`;
+  return `<div class="delta-buttons ${scoreInputMode} ${scoreInputSign < 0 ? "negative-mode" : "positive-mode"}">${valueButtons}${clearButton}</div>`;
 }
 
 function deltaButtonTemplate(playerId, value) {
-  const tone = value < 0 ? "negative" : "positive";
-  const label = `${value < 0 ? "−" : "＋"}${formatNumber(Math.abs(value))}`;
+  const tone = scoreInputSign < 0 ? "negative" : "positive";
   return `
     <button
       class="delta-button ${tone}"
@@ -559,8 +592,51 @@ function deltaButtonTemplate(playerId, value) {
       data-action="delta-step"
       data-player-id="${playerId}"
       data-value="${value}"
-    >${label}</button>
+    >${formatNumber(value)}</button>
   `;
+}
+
+function applyTsumoTemplate(templateKey) {
+  const template = TSUMO_TEMPLATES[templateKey];
+  if (!template) {
+    return;
+  }
+
+  const winnerId = draft.winnerId || (state.players[0] ? state.players[0].id : "");
+  if (!winnerId) {
+    window.alert("ツモ者を選んでください。");
+    return;
+  }
+
+  const dealerId = getDealerId();
+  const winnerIsDealer = winnerId === dealerId;
+  let totalGain = 0;
+
+  draft.result = "tsumo";
+  draft.winnerId = winnerId;
+  draft.loserId = "";
+  draft.deltas = createDeltaMap(state.players);
+
+  state.players.forEach((player) => {
+    if (player.id === winnerId) {
+      return;
+    }
+
+    const payment = winnerIsDealer
+      ? template.dealerWin
+      : player.id === dealerId
+        ? template.childDealer
+        : template.childOther;
+    draft.deltas[player.id] = -payment;
+    totalGain += payment;
+  });
+
+  draft.deltas[winnerId] = totalGain;
+  if (!draft.memo.trim() || Object.values(TSUMO_TEMPLATES).some((item) => item.label === draft.memo.trim())) {
+    draft.memo = template.label;
+  }
+  syncWinningPlayersFromDeltas();
+  render();
 }
 
 function renderChipDeltas() {
@@ -621,7 +697,7 @@ function renderHistory() {
 
   elements.historyList.innerHTML = state.history
     .slice(0, 10)
-    .map((hand) => {
+    .map((hand, index) => {
       const resultText = hand.result === "draw" ? "流局" : hand.result === "tsumo" ? "ツモ" : "ロン";
       const winner = getPlayerNameFromSnapshot(hand.playersAfter, hand.winnerId);
       const loser = getPlayerNameFromSnapshot(hand.playersAfter, hand.loserId);
@@ -655,7 +731,10 @@ function renderHistory() {
 
       return `
         <article class="history-item">
-          <strong>${escapeHtml(headline)}</strong>
+          <div class="history-headline">
+            <strong>${escapeHtml(headline)}</strong>
+            ${index === 0 ? `<button class="mini-delete-button" type="button" data-action="delete-current-hand" data-hand-id="${hand.id}">局削除</button>` : ""}
+          </div>
           <small>${actionNames}${memo}${autoNotes}</small>
           <div class="history-deltas">${deltas}</div>
           ${chipDeltas ? `<div class="history-deltas chips">${chipDeltas}</div>` : ""}
@@ -674,6 +753,13 @@ function renderSummary() {
 
   if (matches.length === 0) {
     elements.summaryStats.innerHTML = `<div class="history-empty">保存済み半荘はまだありません</div>`;
+    elements.trendChart.innerHTML = "";
+    elements.matchList.innerHTML = "";
+    return;
+  }
+
+  if (archiveScope === "daily") {
+    elements.summaryStats.innerHTML = renderDailySummaries(matches, true);
     elements.trendChart.innerHTML = "";
     elements.matchList.innerHTML = "";
     return;
@@ -732,12 +818,62 @@ function renderSummary() {
         .join(" / ");
       return `
         <article class="match-item">
-          <strong>${escapeHtml(match.label || `半荘${match.number || ""}`)}</strong>
+          <div class="match-headline">
+            <strong>${escapeHtml(match.label || `半荘${match.number || ""}`)}</strong>
+            <button class="mini-delete-button" type="button" data-action="delete-match" data-match-id="${match.id}">半荘削除</button>
+          </div>
           <span>${escapeHtml(match.endReason || "保存")} / ${finishedAt}</span>
           ${tobashi ? `<span>トバし: ${escapeHtml(tobashi)}</span>` : ""}
           <small>トップ: ${escapeHtml(top ? top.name : "")} ${top ? formatNumber(top.score) : ""}</small>
           <small>スコア: ${escapeHtml(scores)}</small>
         </article>
+      `;
+    })
+    .join("");
+}
+
+function renderDailySummaries(matches, withDeleteButtons = false) {
+  const groups = getMatchDayGroups(matches);
+  if (groups.length === 0) {
+    return `<div class="history-empty">日別に表示できる半荘がありません</div>`;
+  }
+
+  return groups
+    .map((group) => {
+      const rows = getAggregateRows(group.matches);
+      const medians = getRateMedians(rows);
+      return `
+        <section class="daily-summary">
+          <div class="daily-summary-head">
+            <div>
+              <strong>${escapeHtml(group.label)}</strong>
+              <span>${group.matches.length}半荘</span>
+            </div>
+            ${withDeleteButtons ? `<button class="mini-delete-button danger" type="button" data-action="delete-day" data-day-key="${group.key}">日削除</button>` : ""}
+          </div>
+          <div class="summary-table">
+            ${rows
+              .map((row) => {
+                const scoreClass = toneClass(row.totalLeagueScore);
+                const chipClass = toneClass(row.totalChipDiff);
+                return `
+                  <div class="summary-row">
+                    <strong>${escapeHtml(row.name)}</strong>
+                    <span>${row.games}半荘</span>
+                    <span class="${scoreClass}">スコア${formatSigned(row.totalLeagueScore)}</span>
+                    <span class="${chipClass}">チップ${formatSigned(row.totalChipDiff)}</span>
+                    <span>平均${row.averageRank.toFixed(2)}位</span>
+                    ${rateBadge("トップ", row.topRate, medians.topRate)}
+                    ${rateBadge("連対", row.rentaiRate, medians.rentaiRate)}
+                    ${rateBadge("4着回避", row.avoidLastRate, medians.avoidLastRate)}
+                    ${rateBadge("トビ", row.tobiRate, medians.tobiRate, true)}
+                    ${rateBadge("トバし", row.tobashiRate, medians.tobashiRate)}
+                  </div>
+                `;
+              })
+              .join("")}
+          </div>
+        </section>
       `;
     })
     .join("");
@@ -878,6 +1014,18 @@ function renderSettings() {
       </label>
     `;
   }).join("");
+
+  if (elements.dangerZone) {
+    const savedMatchCount = Array.isArray(state.matches) ? state.matches.length : 0;
+    const currentHandCount = Array.isArray(state.history) ? state.history.length : 0;
+    elements.dangerZone.innerHTML = `
+      <div class="danger-zone-head">
+        <strong>データ削除</strong>
+        <span>保存済み${savedMatchCount}半荘 / 現在${currentHandCount}局</span>
+      </div>
+      <button class="button danger" type="button" data-action="delete-all-data">オールデリート</button>
+    `;
+  }
 }
 
 function saveHand() {
@@ -1169,6 +1317,72 @@ function resetMatch() {
   render();
 }
 
+function deleteCurrentHand(handId) {
+  const latest = state.history[0];
+  if (!latest || latest.id !== handId) {
+    window.alert("削除できる局は現在の最新局のみです。過去局を直す場合は、最新局から順に戻してください。");
+    return;
+  }
+
+  if (!window.confirm("最新の1局を削除して、その局の前の状態へ戻しますか？")) {
+    return;
+  }
+
+  undoLastHand();
+}
+
+function deleteSavedMatch(matchId) {
+  const matches = Array.isArray(state.matches) ? state.matches : [];
+  const match = matches.find((item) => item.id === matchId);
+  if (!match) {
+    return;
+  }
+
+  const label = match.label || `半荘${match.number || ""}`;
+  if (!window.confirm(`${label} を保存済み成績から削除しますか？`)) {
+    return;
+  }
+
+  state.matches = matches.filter((item) => item.id !== matchId);
+  saveState();
+  render();
+}
+
+function deleteSavedDay(dayKey) {
+  const matches = Array.isArray(state.matches) ? state.matches : [];
+  const dayMatches = matches.filter((match) => getLocalDateKey(match.finishedAt) === dayKey);
+  if (dayMatches.length === 0) {
+    return;
+  }
+
+  const label = formatDateOnly(dayMatches[0].finishedAt) || dayKey;
+  if (!window.confirm(`${label} の保存済み半荘 ${dayMatches.length}件を削除しますか？`)) {
+    return;
+  }
+
+  state.matches = matches.filter((match) => getLocalDateKey(match.finishedAt) !== dayKey);
+  saveState();
+  render();
+}
+
+function deleteAllData() {
+  if (!window.confirm("すべての保存済み半荘、現在の局履歴、点数を削除しますか？")) {
+    return;
+  }
+
+  if (!window.confirm("この操作は元に戻せません。オールデリートを実行しますか？")) {
+    return;
+  }
+
+  state = createInitialState();
+  draft = createDraft(state);
+  archiveScope = "overall";
+  scoreInputMode = "adjust";
+  scoreInputSign = 1;
+  saveState();
+  render();
+}
+
 function finishMatchManually() {
   if (state.history.length === 0) {
     window.alert("保存する局履歴がありません。");
@@ -1373,7 +1587,7 @@ async function shareSnapshotLink() {
 }
 
 function buildShareUrl() {
-  const url = new URL("./share.html?v=14", window.location.href);
+  const url = new URL("./share.html?v=15", window.location.href);
   url.hash = `data=${encodeSharePayload(createShareSnapshot())}`;
   return url.toString();
 }
@@ -1592,6 +1806,27 @@ function getLatestMatchDayMatches(matches) {
   }
 
   return matches.filter((match) => getLocalDateKey(match.finishedAt) === latestKey);
+}
+
+function getMatchDayGroups(matches) {
+  const groups = new Map();
+
+  getSortedMatches(matches).forEach((match) => {
+    const key = getLocalDateKey(match.finishedAt);
+    if (!key) {
+      return;
+    }
+
+    const group = groups.get(key) || {
+      key,
+      label: formatDateOnly(match.finishedAt),
+      matches: [],
+    };
+    group.matches.push(match);
+    groups.set(key, group);
+  });
+
+  return [...groups.values()].sort((a, b) => b.key.localeCompare(a.key));
 }
 
 function getPlayersWithRanks(match) {
