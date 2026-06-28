@@ -1,12 +1,12 @@
-const CACHE_NAME = "mahjong-ledger-v10";
+const CACHE_NAME = "mahjong-ledger-v11";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=10",
-  "./app.js?v=10",
+  "./styles.css?v=11",
+  "./app.js?v=11",
   "./share.html",
-  "./share.css?v=10",
-  "./share.js?v=10",
+  "./share.css?v=11",
+  "./share.js?v=11",
   "./manifest.json",
   "./icon.svg",
 ];

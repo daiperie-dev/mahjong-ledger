@@ -12,6 +12,7 @@ const SETTINGS = [
   { key: "autoHonbaPayments", label: "本場点補正", type: "checkbox" },
   { key: "autoDepositPayout", label: "供託払い出し", type: "checkbox" },
   { key: "autoRiichiDeposit", label: "流局リーチ供託", type: "checkbox" },
+  { key: "autoDrawTenpaiPayments", label: "流局聴牌料", type: "checkbox" },
   { key: "autoRiichiDealIn", label: "立直放銃1000点", type: "checkbox" },
   { key: "autoEndSouth4", label: "南4局終了保存", type: "checkbox" },
   { key: "tobiEnabled", label: "トビ終了", type: "checkbox" },
@@ -98,6 +99,7 @@ function createDefaultSettings() {
     autoHonbaPayments: true,
     autoDepositPayout: true,
     autoRiichiDeposit: true,
+    autoDrawTenpaiPayments: true,
     autoRiichiDealIn: true,
     autoEndSouth4: true,
     tobiEnabled: true,
@@ -219,7 +221,7 @@ function handleClick(event) {
 
   if (action === "set-result") {
     draft.result = target.dataset.result;
-    syncRonPlayersFromDeltas();
+    syncWinningPlayersFromDeltas();
     render();
   }
 
@@ -239,7 +241,7 @@ function handleClick(event) {
 
   if (action === "delta-step") {
     draft.deltas[playerId] = normalizeScore((draft.deltas[playerId] || 0) + value);
-    syncRonPlayersFromDeltas();
+    syncWinningPlayersFromDeltas();
     render();
   }
 }
@@ -266,7 +268,7 @@ function handleChange(event) {
 
   if (target.matches("[data-delta-input]")) {
     draft.deltas[target.dataset.deltaInput] = normalizeScore(Number(target.value || 0));
-    syncRonPlayersFromDeltas();
+    syncWinningPlayersFromDeltas();
     render();
   }
 
@@ -360,15 +362,17 @@ function renderSelectors() {
   const playerOptions = state.players
     .map((player) => `<option value="${player.id}">${escapeHtml(getPlayerOptionLabel(player))}</option>`)
     .join("");
-
-  elements.winnerSelect.innerHTML = playerOptions;
-  elements.loserSelect.innerHTML = playerOptions;
-  elements.winnerSelect.value = draft.winnerId;
-  elements.loserSelect.value = draft.loserId;
-
+  const emptyOption = `<option value="">なし</option>`;
   const isDraw = draft.result === "draw";
+  const hasLoser = draft.result === "ron";
+
+  elements.winnerSelect.innerHTML = isDraw ? `${emptyOption}${playerOptions}` : playerOptions;
+  elements.loserSelect.innerHTML = hasLoser ? playerOptions : `${emptyOption}${playerOptions}`;
+  elements.winnerSelect.value = isDraw ? "" : draft.winnerId;
+  elements.loserSelect.value = hasLoser ? draft.loserId : "";
+
   elements.winnerSelect.disabled = isDraw;
-  elements.loserSelect.disabled = isDraw || draft.result === "tsumo";
+  elements.loserSelect.disabled = !hasLoser;
 }
 
 function renderModeTabs() {
@@ -682,7 +686,7 @@ function syncDraftFromControls() {
   document.querySelectorAll("[data-delta-input]").forEach((input) => {
     draft.deltas[input.dataset.deltaInput] = normalizeScore(Number(input.value || 0));
   });
-  syncRonPlayersFromDeltas();
+  syncWinningPlayersFromDeltas();
   draft.memo = elements.memoInput.value;
   draft.advanceRound = elements.advanceRound.checked;
 }
@@ -745,6 +749,8 @@ function calculateAutoAdjustments() {
 
   if (draft.result === "draw") {
     const riichiTenpaiPlayers = state.players.filter((player) => isPlayerRiichi(player.id) && isPlayerTenpai(player.id));
+    const tenpaiPlayers = state.players.filter((player) => isPlayerTenpai(player.id));
+    const notenPlayers = state.players.filter((player) => !isPlayerTenpai(player.id));
 
     if (getSetting("autoRiichiDeposit") && riichiTenpaiPlayers.length > 0) {
       riichiTenpaiPlayers.forEach((player) => {
@@ -752,6 +758,23 @@ function calculateAutoAdjustments() {
       });
       nextRiichiSticks += riichiTenpaiPlayers.length;
       notes.push(`立直流局: 供託+${riichiTenpaiPlayers.length}`);
+    }
+
+    if (
+      getSetting("autoDrawTenpaiPayments") &&
+      sumAbsDeltas(draft.deltas) === 0 &&
+      tenpaiPlayers.length > 0 &&
+      notenPlayers.length > 0
+    ) {
+      const tenpaiGain = 3000 / tenpaiPlayers.length;
+      const notenLoss = 3000 / notenPlayers.length;
+      tenpaiPlayers.forEach((player) => {
+        scoreDeltas[player.id] += tenpaiGain;
+      });
+      notenPlayers.forEach((player) => {
+        scoreDeltas[player.id] -= notenLoss;
+      });
+      notes.push(`流局聴牌料: 聴牌 +${formatNumber(tenpaiGain)} / ノーテン -${formatNumber(notenLoss)}`);
     }
 
     if (!getSetting("autoRoundRules")) {
@@ -807,18 +830,22 @@ function validateDraft() {
   return true;
 }
 
-function syncRonPlayersFromDeltas() {
-  if (draft.result !== "ron") {
+function syncWinningPlayersFromDeltas() {
+  if (draft.result === "ron") {
+    const shape = getRonDeltaShape();
+    if (shape.isPair) {
+      draft.winnerId = shape.winnerId;
+      draft.loserId = shape.loserId;
+    }
     return;
   }
 
-  const shape = getRonDeltaShape();
-  if (!shape.isPair) {
-    return;
+  if (draft.result === "tsumo") {
+    const shape = getTsumoDeltaShape();
+    if (shape.isTsumo) {
+      draft.winnerId = shape.winnerId;
+    }
   }
-
-  draft.winnerId = shape.winnerId;
-  draft.loserId = shape.loserId;
 }
 
 function validateRonSinglePayer() {
@@ -1318,6 +1345,32 @@ function getRonDeltaShape() {
     isPair: positives.length === 1 && negatives.length === 1 && zeros.length === state.players.length - 2,
     winnerId: positives[0] ? positives[0].id : "",
     loserId: negatives[0] ? negatives[0].id : "",
+    positives,
+    negatives,
+    zeros,
+  };
+}
+
+function getTsumoDeltaShape() {
+  const positives = [];
+  const negatives = [];
+  const zeros = [];
+
+  state.players.forEach((player) => {
+    const delta = Number(draft.deltas[player.id] || 0);
+    if (delta > 0) {
+      positives.push(player);
+    } else if (delta < 0) {
+      negatives.push(player);
+    } else {
+      zeros.push(player);
+    }
+  });
+
+  return {
+    isTsumo: positives.length === 1 && negatives.length === state.players.length - 1 && zeros.length === 0,
+    winnerId: positives[0] ? positives[0].id : "",
+    payerIds: negatives.map((player) => player.id),
     positives,
     negatives,
     zeros,
