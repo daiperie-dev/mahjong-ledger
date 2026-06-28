@@ -1,7 +1,7 @@
 const STORAGE_KEY = "mahjong-ledger-state-v1";
 const THEME_KEY = "mahjong-ledger-theme-v1";
 const SHARE_CONFIG_KEY = "mahjong-ledger-share-config-v1";
-const DEFAULT_REMOTE_SHARE_API_BASE_URL = "";
+const DEFAULT_REMOTE_SHARE_API_BASE_URL = "https://mahjong-ledger-share.daiperie-mahjong-ledger.workers.dev";
 const STARTING_SCORE = 25000;
 const STARTING_CHIPS = 20;
 const ROUNDS = ["東1局", "東2局", "東3局", "東4局", "南1局", "南2局", "南3局", "南4局"];
@@ -1673,7 +1673,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=21", window.location.href);
+  const url = new URL("./share.html?v=22", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -1708,7 +1708,7 @@ async function buildRemoteShareUrl(snapshot) {
       throw new Error("Share API returned an invalid id");
     }
 
-    const url = new URL("./share.html?v=21", window.location.href);
+    const url = new URL("./share.html?v=22", window.location.href);
     url.searchParams.set("id", id);
 
     const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);

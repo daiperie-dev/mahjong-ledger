@@ -1,5 +1,5 @@
 const STORAGE_KEY = "mahjong-ledger-state-v1";
-const DEFAULT_REMOTE_SHARE_API_BASE_URL = "";
+const DEFAULT_REMOTE_SHARE_API_BASE_URL = "https://mahjong-ledger-share.daiperie-mahjong-ledger.workers.dev";
 const STARTING_SCORE = 25000;
 const STARTING_CHIPS = 20;
 const DEFAULT_UMA = [30, 10, -10, -30];

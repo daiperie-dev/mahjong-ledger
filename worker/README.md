@@ -25,3 +25,9 @@ wrangler deploy
 ```
 
 After deploy, enter the Worker URL and the same write token in the Mahjong Ledger settings on the recording iPad.
+
+Current deployed URL:
+
+```text
+https://mahjong-ledger-share.daiperie-mahjong-ledger.workers.dev
+```
