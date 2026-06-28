@@ -114,6 +114,7 @@ let state = loadState();
 let draft = createDraft(state);
 let shareConfig = loadShareConfig();
 let archiveScope = "overall";
+let editingMatchId = "";
 
 applyTheme(localStorage.getItem(THEME_KEY) || "light");
 render();
@@ -345,6 +346,18 @@ function handleClick(event) {
     render();
   }
 
+  if (action === "winner-chip-step") {
+    draft.winnerChipGain = normalizeChipGain(Number(draft.winnerChipGain || 0) + value);
+    applyChipDeltas();
+    render();
+  }
+
+  if (action === "winner-chip-clear") {
+    draft.winnerChipGain = 0;
+    applyChipDeltas();
+    render();
+  }
+
   if (action === "toggle-call" || action === "toggle-riichi" || action === "toggle-tenpai") {
     const key = action === "toggle-call" ? "call" : action === "toggle-riichi" ? "riichi" : "tenpai";
     draft.actions[playerId][key] = !draft.actions[playerId][key];
@@ -360,6 +373,20 @@ function handleClick(event) {
 
   if (action === "delete-match") {
     deleteSavedMatch(target.dataset.matchId);
+  }
+
+  if (action === "edit-match") {
+    editingMatchId = target.dataset.matchId || "";
+    render();
+  }
+
+  if (action === "cancel-edit-match") {
+    editingMatchId = "";
+    render();
+  }
+
+  if (action === "save-edit-match") {
+    saveMatchEdits(target.dataset.matchId);
   }
 
   if (action === "delete-day") {
@@ -759,6 +786,13 @@ function renderChipDeltas() {
           aria-label="和了者の獲得チップ枚数"
         />
       </label>
+      <div class="chip-buttons winner-chip-buttons" aria-label="和了者の獲得チップ調整">
+        <button class="chip-button negative" type="button" data-action="winner-chip-step" data-value="-5">-5</button>
+        <button class="chip-button negative" type="button" data-action="winner-chip-step" data-value="-1">-1</button>
+        <button class="chip-button clear" type="button" data-action="winner-chip-clear">0</button>
+        <button class="chip-button positive" type="button" data-action="winner-chip-step" data-value="1">+1</button>
+        <button class="chip-button positive" type="button" data-action="winner-chip-step" data-value="5">+5</button>
+      </div>
       <div class="chip-preview">${chipRows}</div>
     </div>
   `;
@@ -1145,7 +1179,7 @@ function renderSummary() {
   if (archiveScope === "daily") {
     elements.summaryStats.innerHTML = renderDailySummaries(matches, true);
     elements.trendChart.innerHTML = renderScoreTrend(matches);
-    elements.matchList.innerHTML = "";
+    elements.matchList.innerHTML = renderMatchEditList(matches, "日別");
     return;
   }
 
@@ -1190,36 +1224,113 @@ function renderSummary() {
     archiveScope === "today" ? `当日 ${dayLabel}` : "総合"
   );
   elements.trendChart.innerHTML = renderScoreTrend(scopedMatches);
+  elements.matchList.innerHTML = renderMatchEditList(scopedMatches, archiveScope === "today" ? "当日" : "総合");
+}
 
-  elements.matchList.innerHTML = scopedMatches
-    .slice(0, 6)
-    .map((match) => {
-      const players = getPlayersWithRanks(match);
-      const top = players[0] || null;
-      const finishedAt = formatDateTime(match.finishedAt);
-      const tobashi = formatTobashiPlayers(match);
-      const scores = players
-        .map((player) => {
-          const bonus = getPlayerTobashiBonus(player, match);
-          const bonusText = bonus ? ` 賞${formatSigned(bonus)}` : "";
-          return `${player.rank}位 ${player.name} ${formatSigned(getPlayerLeagueScore(player, match))} / チップ${formatSigned(getPlayerChipDiff(player))}${bonusText}`;
-        })
-        .join(" / ");
-      return `
-        <article class="match-item">
-          <div class="match-headline">
-            <strong>${escapeHtml(match.label || `半荘${match.number || ""}`)}</strong>
-            <button class="mini-delete-button" type="button" data-action="delete-match" data-match-id="${match.id}">半荘削除</button>
-          </div>
-          <span>${escapeHtml(match.endReason || "保存")} / ${finishedAt}</span>
-          ${tobashi ? `<span>トバし: ${escapeHtml(tobashi)}</span>` : ""}
-          <small>トップ: ${escapeHtml(top ? top.name : "")} ${top ? formatNumber(top.score) : ""}</small>
-          <small>スコア: ${escapeHtml(scores)}</small>
-        </article>
-      `;
-    })
-    .join("");
-  elements.matchList.innerHTML = "";
+function renderMatchEditList(matches, scopeLabel = "") {
+  const sortedMatches = getSortedMatches(matches);
+  if (!sortedMatches.length) {
+    return "";
+  }
+
+  const isOpen = editingMatchId && sortedMatches.some((match) => match.id === editingMatchId);
+
+  return `
+    <details class="match-edit-section" ${isOpen ? "open" : ""}>
+      <summary>保存済み半荘の修正${scopeLabel ? `（${escapeHtml(scopeLabel)}）` : ""}</summary>
+      <div class="match-edit-list">
+        ${sortedMatches.map(renderMatchEditItem).join("")}
+      </div>
+    </details>
+  `;
+}
+
+function renderMatchEditItem(match) {
+  const players = getPlayersWithRanks(match);
+  const top = players[0] || null;
+  const finishedAt = formatDateTime(match.finishedAt);
+  const tobashi = formatTobashiPlayers(match);
+  const scoreTotal = getMatchLeagueScoreTotal(match);
+  const chipTotal = (match.players || []).reduce((sum, player) => sum + getPlayerChipDiff(player), 0);
+  const isEditing = editingMatchId === match.id;
+  const scores = players
+    .map((player) => `${player.rank}位 ${player.name} ${formatSigned(getPlayerLeagueScore(player, match))} / チップ${formatSigned(getPlayerChipDiff(player))}`)
+    .join(" / ");
+
+  return `
+    <article class="match-item match-edit-item">
+      <div class="match-headline">
+        <strong>${escapeHtml(match.label || `半荘${match.number || ""}`)}</strong>
+        <div class="match-actions">
+          <button class="mini-edit-button" type="button" data-action="edit-match" data-match-id="${escapeHtml(match.id)}">${isEditing ? "編集中" : "修正"}</button>
+          <button class="mini-delete-button" type="button" data-action="delete-match" data-match-id="${escapeHtml(match.id)}">半荘削除</button>
+        </div>
+      </div>
+      <span>${escapeHtml(match.endReason || "保存")} / ${finishedAt}</span>
+      ${tobashi ? `<span>トバし: ${escapeHtml(tobashi)}</span>` : ""}
+      <small>トップ: ${escapeHtml(top ? top.name : "")} ${top ? formatNumber(top.score) : ""}</small>
+      <small>スコア合計${formatSigned(scoreTotal)} / チップ合計${formatSigned(chipTotal)}</small>
+      <small>内訳: ${escapeHtml(scores)}</small>
+      ${isEditing ? renderMatchEditPanel(match) : ""}
+    </article>
+  `;
+}
+
+function renderMatchEditPanel(match) {
+  const ranks = getRanksForPlayers(match.players || []);
+  const players = (match.players || [])
+    .slice()
+    .sort((a, b) => Number(a.seat || 0) - Number(b.seat || 0));
+
+  return `
+    <div class="match-edit-panel">
+      <label class="match-edit-reason">
+        <span>終了理由</span>
+        <input type="text" data-match-edit-reason="${escapeHtml(match.id)}" value="${escapeHtml(match.endReason || "")}" />
+      </label>
+      <div class="ledger-scroll match-edit-scroll">
+        <table class="ledger-table match-edit-table">
+          <thead>
+            <tr>
+              <th>名前</th>
+              <th>順位</th>
+              <th>点数</th>
+              <th>チップ差</th>
+              <th>局数</th>
+              <th>和了</th>
+              <th>放銃</th>
+              <th>リーチ</th>
+              <th>副露</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${players
+              .map((player) => {
+                const rank = Number(player.rank || ranks.get(player.id) || 4);
+                return `
+                  <tr>
+                    <th>${escapeHtml(player.name || defaultPlayerName(player.seat))}</th>
+                    <td>${rank}</td>
+                    <td><input type="number" inputmode="numeric" step="100" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="score" value="${Number(player.score || 0)}" /></td>
+                    <td><input type="number" inputmode="decimal" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="chipDiff" value="${formatChipInputValue(getPlayerChipDiff(player))}" /></td>
+                    <td><input type="number" inputmode="numeric" min="0" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="hands" value="${Number(player.hands || 0)}" /></td>
+                    <td><input type="number" inputmode="numeric" min="0" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="wins" value="${Number(player.wins || 0)}" /></td>
+                    <td><input type="number" inputmode="numeric" min="0" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="dealIns" value="${Number(player.dealIns || 0)}" /></td>
+                    <td><input type="number" inputmode="numeric" min="0" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="riichi" value="${Number(player.riichi || 0)}" /></td>
+                    <td><input type="number" inputmode="numeric" min="0" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="calls" value="${Number(player.calls || 0)}" /></td>
+                  </tr>
+                `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+      <div class="match-edit-actions">
+        <button class="mini-edit-button primary" type="button" data-action="save-edit-match" data-match-id="${escapeHtml(match.id)}">修正を保存</button>
+        <button class="mini-edit-button" type="button" data-action="cancel-edit-match">キャンセル</button>
+      </div>
+    </div>
+  `;
 }
 
 function renderDailySummaries(matches, withDeleteButtons = false) {
@@ -1812,8 +1923,107 @@ function deleteSavedMatch(matchId) {
   }
 
   state.matches = matches.filter((item) => item.id !== matchId);
+  if (editingMatchId === matchId) {
+    editingMatchId = "";
+  }
   saveState();
   render();
+  syncRemoteShareAfterLocalSave();
+}
+
+function saveMatchEdits(matchId) {
+  const matches = Array.isArray(state.matches) ? state.matches : [];
+  const match = matches.find((item) => item.id === matchId);
+  if (!match) {
+    return;
+  }
+
+  const updatedPlayers = (match.players || []).map((player) => {
+    const chipDiff = roundChipValue(readMatchEditNumber(matchId, player.id, "chipDiff", getPlayerChipDiff(player)));
+    return {
+      ...player,
+      score: normalizeScore(readMatchEditNumber(matchId, player.id, "score", player.score)),
+      chips: roundChipValue(STARTING_CHIPS + chipDiff),
+      chipDiff,
+      hands: normalizeNonNegativeInteger(readMatchEditNumber(matchId, player.id, "hands", player.hands)),
+      wins: normalizeNonNegativeInteger(readMatchEditNumber(matchId, player.id, "wins", player.wins)),
+      dealIns: normalizeNonNegativeInteger(readMatchEditNumber(matchId, player.id, "dealIns", player.dealIns)),
+      riichi: normalizeNonNegativeInteger(readMatchEditNumber(matchId, player.id, "riichi", player.riichi)),
+      calls: normalizeNonNegativeInteger(readMatchEditNumber(matchId, player.id, "calls", player.calls)),
+    };
+  });
+  const reasonInput = findMatchEditReasonInput(matchId);
+  const updatedMatch = recalculateSavedMatch({
+    ...match,
+    endReason: reasonInput ? reasonInput.value.trim() || match.endReason || "修正保存" : match.endReason,
+    players: updatedPlayers,
+  });
+
+  state.matches = matches.map((item) => (item.id === matchId ? updatedMatch : item));
+  editingMatchId = "";
+  saveState();
+  render();
+  syncRemoteShareAfterLocalSave();
+}
+
+function readMatchEditNumber(matchId, playerId, field, fallback = 0) {
+  const input = findMatchEditInput(matchId, playerId, field);
+  const value = Number(input ? input.value : fallback);
+  return Number.isFinite(value) ? value : Number(fallback || 0);
+}
+
+function findMatchEditInput(matchId, playerId, field) {
+  return Array.from(document.querySelectorAll("[data-match-edit-field]")).find(
+    (input) =>
+      input.dataset.matchId === matchId &&
+      input.dataset.playerId === playerId &&
+      input.dataset.matchEditField === field
+  );
+}
+
+function findMatchEditReasonInput(matchId) {
+  return Array.from(document.querySelectorAll("[data-match-edit-reason]")).find((input) => input.dataset.matchEditReason === matchId);
+}
+
+function recalculateSavedMatch(match) {
+  const players = (match.players || []).map((player) => ({
+    ...player,
+    score: normalizeScore(Number(player.score || 0)),
+    chips: roundChipValue(Number(player.chips ?? STARTING_CHIPS)),
+    hands: normalizeNonNegativeInteger(Number(player.hands || 0)),
+    wins: normalizeNonNegativeInteger(Number(player.wins || 0)),
+    dealIns: normalizeNonNegativeInteger(Number(player.dealIns || 0)),
+    riichi: normalizeNonNegativeInteger(Number(player.riichi || 0)),
+    calls: normalizeNonNegativeInteger(Number(player.calls || 0)),
+  }));
+  const ranks = getRanksForPlayers(players);
+  const baseMatch = {
+    ...match,
+    players,
+    settings: normalizeSettingsPayload(match.settings || state.settings || {}),
+  };
+
+  const recalculatedPlayers = players.map((player) => {
+    const rankedPlayer = {
+      ...player,
+      rank: Number(ranks.get(player.id) || 4),
+    };
+    return {
+      ...rankedPlayer,
+      scoreDiff: getPlayerScoreDiff(rankedPlayer),
+      roundedScore: getPlayerRoundedScore(rankedPlayer),
+      uma: getPlayerUma(rankedPlayer, baseMatch),
+      tobashiBonus: getPlayerTobashiBonus(rankedPlayer, baseMatch),
+      okaAdjustment: getPlayerOkaAdjustment(rankedPlayer, baseMatch),
+      leagueScore: getPlayerLeagueScore(rankedPlayer, baseMatch),
+      chipDiff: getPlayerChipDiff(rankedPlayer),
+    };
+  });
+
+  return {
+    ...baseMatch,
+    players: recalculatedPlayers,
+  };
 }
 
 function deleteSavedDay(dayKey) {
@@ -1829,8 +2039,12 @@ function deleteSavedDay(dayKey) {
   }
 
   state.matches = matches.filter((match) => getLocalDateKey(match.finishedAt) !== dayKey);
+  if (dayMatches.some((match) => match.id === editingMatchId)) {
+    editingMatchId = "";
+  }
   saveState();
   render();
+  syncRemoteShareAfterLocalSave();
 }
 
 function deleteAllData() {
@@ -1845,8 +2059,10 @@ function deleteAllData() {
   state = createInitialState();
   draft = createDraft(state);
   archiveScope = "overall";
+  editingMatchId = "";
   saveState();
   render();
+  syncRemoteShareAfterLocalSave();
 }
 
 function finishMatchManually() {
@@ -1864,6 +2080,7 @@ function finishMatchManually() {
   draft = createDraft(state);
   saveState();
   render();
+  syncRemoteShareAfterLocalSave();
 }
 
 function archiveCurrentMatch(endInfo) {
@@ -2072,7 +2289,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=27", window.location.href);
+  const url = new URL("./share.html?v=28", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -2149,7 +2366,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=27", window.location.href);
+  const url = new URL("./share.html?v=28", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
@@ -2161,13 +2378,12 @@ function makeRemoteShareUrl(id, config) {
 }
 
 function syncRemoteShareAfterLocalSave() {
-  const matches = Array.isArray(state.matches) ? state.matches : [];
   const config = normalizeShareConfig(shareConfig);
-  if (!matches.length || !config.apiBaseUrl || !config.writeToken) {
+  if (!config.apiBaseUrl || !config.writeToken || !isValidShareId(config.shareId)) {
     return;
   }
 
-  buildRemoteShareUrl(createShareSnapshot(), { createOnUpdateFailure: false }).catch(() => {});
+  buildRemoteShareUrl(createShareSnapshot(), { createOnUpdateFailure: false, updateOnly: true }).catch(() => {});
 }
 
 function isValidShareId(value) {
@@ -2899,6 +3115,14 @@ function normalizeChip(value) {
   }
 
   return Math.round(value);
+}
+
+function normalizeNonNegativeInteger(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round(value));
 }
 
 function normalizeChipGain(value) {
