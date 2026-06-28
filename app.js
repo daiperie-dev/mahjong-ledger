@@ -59,6 +59,7 @@ const SETTINGS = [
   { key: "ledgerShowRawScore", label: "記録票: 点数", type: "checkbox" },
   { key: "ledgerShowRoundedScore", label: "記録票: 素点丸め", type: "checkbox" },
   { key: "ledgerShowUma", label: "記録票: ウマ", type: "checkbox" },
+  { key: "ledgerShowOka", label: "記録票: オカ補正", type: "checkbox" },
   { key: "umaRank1", label: "ウマ1位", type: "number", step: 1, normalize: "integer" },
   { key: "umaRank2", label: "ウマ2位", type: "number", step: 1, normalize: "integer" },
   { key: "umaRank3", label: "ウマ3位", type: "number", step: 1, normalize: "integer" },
@@ -162,6 +163,7 @@ function createDefaultSettings() {
     ledgerShowRawScore: false,
     ledgerShowRoundedScore: false,
     ledgerShowUma: false,
+    ledgerShowOka: false,
     umaRank1: DEFAULT_UMA[0],
     umaRank2: DEFAULT_UMA[1],
     umaRank3: DEFAULT_UMA[2],
@@ -901,6 +903,9 @@ function getLedgerColumns(settings = state.settings || {}) {
   if (settings.ledgerShowUma) {
     columns.push({ key: "uma", label: "ウマ" });
   }
+  if (settings.ledgerShowOka) {
+    columns.push({ key: "oka", label: "オカ補正" });
+  }
 
   return columns;
 }
@@ -922,6 +927,7 @@ function renderMatchLedger(matches) {
             <th rowspan="2">半荘</th>
             <th rowspan="2">保存日時</th>
             ${sheetPlayers.map((player) => `<th colspan="${columns.length}">${escapeHtml(player.name)}</th>`).join("")}
+            <th rowspan="2">トータル</th>
           </tr>
           <tr>
             ${sheetPlayers.map(() => columns.map((column) => `<th>${column.label}</th>`).join("")).join("")}
@@ -934,6 +940,7 @@ function renderMatchLedger(matches) {
                 <th>${escapeHtml(match.label || `半荘${match.number || ""}`)}</th>
                 <td>${escapeHtml(formatDateTime(match.finishedAt))}</td>
                 ${sheetPlayers.map((player) => renderMatchLedgerPlayerCells(match, player.key, columns)).join("")}
+                ${renderMatchTotalCell(match)}
               </tr>
             `)
             .join("")}
@@ -941,6 +948,11 @@ function renderMatchLedger(matches) {
       </table>
     </div>
   `;
+}
+
+function renderMatchTotalCell(match) {
+  const total = getMatchLeagueScoreTotal(match);
+  return `<td class="${toneClass(total)}">${formatSigned(total)}</td>`;
 }
 
 function renderMatchLedgerPlayerCells(match, playerKey, columns = getLedgerColumns()) {
@@ -975,6 +987,7 @@ function getMatchLedgerCell(columnKey, player, match) {
   const tobashiBonus = getPlayerTobashiBonus(player, match);
   const roundedScore = getPlayerRoundedScore(player);
   const uma = getPlayerUma(player, match);
+  const oka = getPlayerOkaAdjustment(player, match);
 
   switch (columnKey) {
     case "rank":
@@ -995,6 +1008,8 @@ function getMatchLedgerCell(columnKey, player, match) {
       return { text: formatSigned(roundedScore), csv: formatSigned(roundedScore), className: toneClass(roundedScore) };
     case "uma":
       return { text: formatSigned(uma), csv: formatSigned(uma), className: toneClass(uma) };
+    case "oka":
+      return { text: formatSigned(oka), csv: formatSigned(oka), className: toneClass(oka) };
     default:
       return { text: "", csv: "" };
   }
@@ -1775,6 +1790,18 @@ function archiveCurrentMatch(endInfo) {
   const number = matches.length + 1;
   const players = deepClone(state.players);
   const ranks = getRanksForPlayers(players);
+  const playerScores = players.map((player) => {
+    const rank = ranks.get(player.id);
+    const scoreDiff = player.score - RETURN_SCORE;
+    const roundedScore = roundHundredsFiveDownSixUp(scoreDiff);
+    const uma = getUmaForRank(rank, state.settings);
+    const tobashiBonus =
+      getTobashiBonusForPlayer(player.id, info.tobashiShares || {}, state.settings) -
+      getTobashiPenaltyForPlayer(player.id, info.bustedIds || [], state.settings);
+    const baseLeagueScore = roundedScore + uma + tobashiBonus;
+    return { player, rank, scoreDiff, roundedScore, uma, tobashiBonus, baseLeagueScore };
+  });
+  const okaAdjustment = -playerScores.reduce((sum, row) => sum + row.baseLeagueScore, 0);
   const match = {
     id: makeId("match"),
     number,
@@ -1785,14 +1812,8 @@ function archiveCurrentMatch(endInfo) {
     bustedIds: info.bustedIds || [],
     tobashiIds: info.tobashiIds || [],
     tobashiShares: info.tobashiShares || {},
-    players: players.map((player) => {
-      const rank = ranks.get(player.id);
-      const scoreDiff = player.score - RETURN_SCORE;
-      const roundedScore = roundHundredsFiveDownSixUp(scoreDiff);
-      const uma = getUmaForRank(rank, state.settings);
-      const tobashiBonus =
-        getTobashiBonusForPlayer(player.id, info.tobashiShares || {}, state.settings) -
-        getTobashiPenaltyForPlayer(player.id, info.bustedIds || [], state.settings);
+    players: playerScores.map(({ player, rank, scoreDiff, roundedScore, uma, tobashiBonus, baseLeagueScore }) => {
+      const playerOkaAdjustment = rank === 1 ? okaAdjustment : 0;
       return {
         ...player,
         rank,
@@ -1800,7 +1821,8 @@ function archiveCurrentMatch(endInfo) {
         roundedScore,
         uma,
         tobashiBonus,
-        leagueScore: roundedScore + uma + tobashiBonus,
+        okaAdjustment: playerOkaAdjustment,
+        leagueScore: baseLeagueScore + playerOkaAdjustment,
         chipDiff: Number(player.chips ?? STARTING_CHIPS) - STARTING_CHIPS,
       };
     }),
@@ -1966,7 +1988,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=25", window.location.href);
+  const url = new URL("./share.html?v=26", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -2043,7 +2065,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=25", window.location.href);
+  const url = new URL("./share.html?v=26", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
@@ -2126,6 +2148,7 @@ function pickShareSettings(settings) {
     "ledgerShowRawScore",
     "ledgerShowRoundedScore",
     "ledgerShowUma",
+    "ledgerShowOka",
     "umaRank1",
     "umaRank2",
     "umaRank3",
@@ -2230,6 +2253,7 @@ function buildSheetCsv(matches) {
     "保存日時",
     "終了理由",
     ...sheetPlayers.flatMap((player) => matchColumns.map((column) => `${player.name} ${column.label}`)),
+    "トータル",
   ]);
   sortedMatches.reverse().forEach((match) => {
     rows.push([
@@ -2237,6 +2261,7 @@ function buildSheetCsv(matches) {
       formatCsvDateTime(match.finishedAt),
       match.endReason || "保存済み",
       ...sheetPlayers.flatMap((sheetPlayer) => getMatchLedgerCsvCells(match, sheetPlayer.key, matchColumns)),
+      formatSigned(getMatchLeagueScoreTotal(match)),
     ]);
   });
 
@@ -2460,11 +2485,6 @@ function getPlayerRoundedScore(player) {
 }
 
 function getPlayerUma(player, match) {
-  const storedUma = Number(player.uma);
-  if (Number.isFinite(storedUma)) {
-    return storedUma;
-  }
-
   const rank = Number(player.rank || getRanksForPlayers(match.players || []).get(player.id) || 4);
   return getUmaForRank(rank, match.settings || state.settings || {});
 }
@@ -2477,8 +2497,38 @@ function getPlayerTobashiBonus(player, match) {
   );
 }
 
-function getPlayerLeagueScore(player, match) {
+function getPlayerBaseLeagueScore(player, match) {
   return getPlayerRoundedScore(player) + getPlayerUma(player, match) + getPlayerTobashiBonus(player, match);
+}
+
+function getPlayerOkaAdjustment(player, match) {
+  const ranks = getRanksForPlayers(match.players || []);
+  const rank = Number(player.rank || ranks.get(player.id) || 4);
+  if (rank !== 1) {
+    return 0;
+  }
+
+  return -getMatchBaseLeagueScoreTotal(match);
+}
+
+function getPlayerLeagueScore(player, match) {
+  return getPlayerBaseLeagueScore(player, match) + getPlayerOkaAdjustment(player, match);
+}
+
+function getMatchBaseLeagueScoreTotal(match) {
+  const ranks = getRanksForPlayers(match.players || []);
+  return (match.players || []).reduce((sum, player) => {
+    const rankedPlayer = { ...player, rank: Number(player.rank || ranks.get(player.id) || 4) };
+    return sum + getPlayerBaseLeagueScore(rankedPlayer, match);
+  }, 0);
+}
+
+function getMatchLeagueScoreTotal(match) {
+  const ranks = getRanksForPlayers(match.players || []);
+  return (match.players || []).reduce((sum, player) => {
+    const rankedPlayer = { ...player, rank: Number(player.rank || ranks.get(player.id) || 4) };
+    return sum + getPlayerLeagueScore(rankedPlayer, match);
+  }, 0);
 }
 
 function getUmaForRank(rank, settings) {
