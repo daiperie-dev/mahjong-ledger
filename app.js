@@ -392,8 +392,7 @@ function handleChange(event) {
   }
 
   if (target.matches("[data-preset-slider]")) {
-    updatePresetValueFromSlider(target.dataset.presetSlider, target.value);
-    render();
+    updatePresetSliderDisplay(target);
   }
 
   if (target.matches("[data-setting]")) {
@@ -412,13 +411,14 @@ function handleChange(event) {
 }
 
 function handleInput(event) {
-  if (event.target === elements.memoInput) {
-    draft.memo = event.target.value;
+  const target = event.target;
+
+  if (target === elements.memoInput) {
+    draft.memo = target.value;
   }
 
-  if (event.target.matches("[data-preset-slider]")) {
-    updatePresetValueFromSlider(event.target.dataset.presetSlider, event.target.value);
-    render();
+  if (target.matches("[data-preset-slider]")) {
+    updatePresetSliderDisplay(target);
   }
 }
 
@@ -646,6 +646,8 @@ function renderPresetSlider(player) {
   const list = getScorePresetList(player);
   const index = getPresetIndexForPlayer(player);
   const value = list[index] || list[0] || DEFAULT_PRESET_SCORE;
+  const maxIndex = Math.max(0, list.length - 1);
+  const progress = maxIndex > 0 ? (index / maxIndex) * 100 : 0;
   const tone = getDraftScoreSign(playerId) < 0 ? "negative" : "positive";
 
   return `
@@ -659,10 +661,12 @@ function renderPresetSlider(player) {
       <input
         type="range"
         min="0"
-        max="${Math.max(0, list.length - 1)}"
+        max="${maxIndex}"
         step="1"
         value="${index}"
         data-preset-slider="${playerId}"
+        style="--preset-progress: ${progress}%"
+        aria-valuetext="${formatNumber(value)}"
         aria-label="${escapeHtml(player.name)}の定番点"
       />
     </div>
@@ -1672,7 +1676,7 @@ async function shareSnapshotLink() {
 }
 
 function buildShareUrl() {
-  const url = new URL("./share.html?v=16", window.location.href);
+  const url = new URL("./share.html?v=17", window.location.href);
   url.hash = `data=${encodeSharePayload(createShareSnapshot())}`;
   return url.toString();
 }
@@ -2437,6 +2441,32 @@ function updatePresetValueFromSlider(playerId, rawIndex) {
   const list = getScorePresetList(player);
   const index = Math.round(clamp(Number(rawIndex || 0), 0, Math.max(0, list.length - 1)));
   draft.presetValues[playerId] = list[index] || DEFAULT_PRESET_SCORE;
+}
+
+function updatePresetSliderDisplay(slider) {
+  const playerId = slider.dataset.presetSlider;
+  const player = state.players.find((item) => item.id === playerId);
+  if (!player) {
+    return;
+  }
+
+  const list = getScorePresetList(player);
+  const maxIndex = Math.max(0, list.length - 1);
+  const index = Math.round(clamp(Number(slider.value || 0), 0, maxIndex));
+  const value = list[index] || list[0] || DEFAULT_PRESET_SCORE;
+  const progress = maxIndex > 0 ? (index / maxIndex) * 100 : 0;
+
+  updatePresetValueFromSlider(playerId, index);
+  if (slider.value !== String(index)) {
+    slider.value = String(index);
+  }
+  slider.style.setProperty("--preset-progress", `${progress}%`);
+  slider.setAttribute("aria-valuetext", formatNumber(value));
+
+  const button = slider.closest(".preset-slider")?.querySelector(".preset-apply");
+  if (button) {
+    button.textContent = formatNumber(value);
+  }
 }
 
 function getNearestPresetIndex(list, value) {
