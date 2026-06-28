@@ -31,37 +31,18 @@ export default {
       return getSnapshot(snapshotMatch[1], request, env);
     }
 
+    if (snapshotMatch && request.method === "PUT") {
+      return updateSnapshot(snapshotMatch[1], request, env);
+    }
+
     return json({ error: "Not found" }, request, env, 404);
   },
 };
 
 async function createSnapshot(request, env) {
-  if (!env.SHARE_SNAPSHOTS) {
-    return json({ error: "Storage is not configured" }, request, env, 500);
-  }
-
-  if (!env.WRITE_TOKEN) {
-    return json({ error: "Write token is not configured" }, request, env, 500);
-  }
-
-  if (request.headers.get("X-Share-Token") !== env.WRITE_TOKEN) {
-    return json({ error: "Unauthorized" }, request, env, 401);
-  }
-
-  const text = await request.text();
-  if (new TextEncoder().encode(text).length > MAX_SNAPSHOT_BYTES) {
-    return json({ error: "Snapshot is too large" }, request, env, 413);
-  }
-
-  let snapshot;
-  try {
-    snapshot = JSON.parse(text);
-  } catch {
-    return json({ error: "Invalid JSON" }, request, env, 400);
-  }
-
-  if (!isValidSnapshot(snapshot)) {
-    return json({ error: "Invalid snapshot" }, request, env, 400);
+  const loaded = await readAuthorizedSnapshot(request, env);
+  if (loaded.response) {
+    return loaded.response;
   }
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -72,10 +53,10 @@ async function createSnapshot(request, env) {
       continue;
     }
 
-    await env.SHARE_SNAPSHOTS.put(key, JSON.stringify(snapshot), {
+    await env.SHARE_SNAPSHOTS.put(key, JSON.stringify(loaded.snapshot), {
       metadata: {
         createdAt: new Date().toISOString(),
-        matchCount: Array.isArray(snapshot.m) ? snapshot.m.length : 0,
+        matchCount: Array.isArray(loaded.snapshot.m) ? loaded.snapshot.m.length : 0,
       },
     });
 
@@ -83,6 +64,60 @@ async function createSnapshot(request, env) {
   }
 
   return json({ error: "Could not allocate id" }, request, env, 500);
+}
+
+async function updateSnapshot(id, request, env) {
+  const loaded = await readAuthorizedSnapshot(request, env);
+  if (loaded.response) {
+    return loaded.response;
+  }
+
+  const key = snapshotKey(id);
+  const existing = await env.SHARE_SNAPSHOTS.get(key);
+  if (!existing) {
+    return json({ error: "Not found" }, request, env, 404);
+  }
+
+  await env.SHARE_SNAPSHOTS.put(key, JSON.stringify(loaded.snapshot), {
+    metadata: {
+      updatedAt: new Date().toISOString(),
+      matchCount: Array.isArray(loaded.snapshot.m) ? loaded.snapshot.m.length : 0,
+    },
+  });
+
+  return json({ id }, request, env);
+}
+
+async function readAuthorizedSnapshot(request, env) {
+  if (!env.SHARE_SNAPSHOTS) {
+    return { response: json({ error: "Storage is not configured" }, request, env, 500) };
+  }
+
+  if (!env.WRITE_TOKEN) {
+    return { response: json({ error: "Write token is not configured" }, request, env, 500) };
+  }
+
+  if (request.headers.get("X-Share-Token") !== env.WRITE_TOKEN) {
+    return { response: json({ error: "Unauthorized" }, request, env, 401) };
+  }
+
+  const text = await request.text();
+  if (new TextEncoder().encode(text).length > MAX_SNAPSHOT_BYTES) {
+    return { response: json({ error: "Snapshot is too large" }, request, env, 413) };
+  }
+
+  let snapshot;
+  try {
+    snapshot = JSON.parse(text);
+  } catch {
+    return { response: json({ error: "Invalid JSON" }, request, env, 400) };
+  }
+
+  if (!isValidSnapshot(snapshot)) {
+    return { response: json({ error: "Invalid snapshot" }, request, env, 400) };
+  }
+
+  return { snapshot };
 }
 
 async function getSnapshot(id, request, env) {
@@ -147,7 +182,7 @@ function corsHeaders(request, env) {
 
   return {
     "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,X-Share-Token",
     "Vary": "Origin",
   };

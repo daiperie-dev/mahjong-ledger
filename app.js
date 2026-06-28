@@ -2,6 +2,7 @@ const STORAGE_KEY = "mahjong-ledger-state-v1";
 const THEME_KEY = "mahjong-ledger-theme-v1";
 const SHARE_CONFIG_KEY = "mahjong-ledger-share-config-v1";
 const DEFAULT_REMOTE_SHARE_API_BASE_URL = "https://mahjong-ledger-share.daiperie-mahjong-ledger.workers.dev";
+const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{8,80}$/;
 const STARTING_SCORE = 25000;
 const RETURN_SCORE = 30000;
 const STARTING_CHIPS = 20;
@@ -269,6 +270,7 @@ function normalizeShareConfig(config) {
   return {
     apiBaseUrl: normalizeShareApiBaseUrl(config.apiBaseUrl || DEFAULT_REMOTE_SHARE_API_BASE_URL),
     writeToken: String(config.writeToken || "").trim(),
+    shareId: isValidShareId(config.shareId) ? String(config.shareId).trim() : "",
   };
 }
 
@@ -1447,6 +1449,7 @@ function saveHand() {
 
   state.history.unshift(hand);
   const endInfo = getMatchEndInfo(hand);
+  const archivedMatch = Boolean(endInfo.reason);
   if (endInfo.reason) {
     archiveCurrentMatch(endInfo);
     state = createNextMatchState(state);
@@ -1455,6 +1458,9 @@ function saveHand() {
   draft = createDraft(state);
   saveState();
   render();
+  if (archivedMatch) {
+    syncRemoteShareAfterLocalSave();
+  }
 }
 
 function syncDraftFromControls() {
@@ -1666,6 +1672,7 @@ function undoLastHand() {
   draft = createDraft(state);
   saveState();
   render();
+  syncRemoteShareAfterLocalSave();
 }
 
 function resetMatch() {
@@ -1959,7 +1966,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=24", window.location.href);
+  const url = new URL("./share.html?v=25", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -1968,15 +1975,50 @@ async function buildShareUrl() {
   };
 }
 
-async function buildRemoteShareUrl(snapshot) {
+async function buildRemoteShareUrl(snapshot, options = {}) {
   const config = normalizeShareConfig(shareConfig);
   if (!config.apiBaseUrl || !config.writeToken) {
     return { url: "", warning: "" };
   }
 
+  if (isValidShareId(config.shareId)) {
+    const updated = await persistRemoteSnapshot(snapshot, config, config.shareId);
+    if (updated.id) {
+      return { url: makeRemoteShareUrl(updated.id, config), warning: "" };
+    }
+
+    if (options.createOnUpdateFailure === false) {
+      return {
+        url: "",
+        warning: "共有APIへの更新に失敗しました。",
+      };
+    }
+  }
+
+  if (options.updateOnly) {
+    return { url: "", warning: "" };
+  }
+
+  const created = await persistRemoteSnapshot(snapshot, config);
+  if (created.id) {
+    shareConfig = normalizeShareConfig({
+      ...shareConfig,
+      shareId: created.id,
+    });
+    saveShareConfig();
+    return { url: makeRemoteShareUrl(created.id, config), warning: "" };
+  }
+
+  return {
+    url: "",
+    warning: "共有APIへの保存に失敗したため、URL内保存の共有リンクを作成します。",
+  };
+}
+
+async function persistRemoteSnapshot(snapshot, config, shareId = "") {
   try {
-    const response = await fetch(`${config.apiBaseUrl}/snapshots`, {
-      method: "POST",
+    const response = await fetch(`${config.apiBaseUrl}/snapshots${shareId ? `/${encodeURIComponent(shareId)}` : ""}`, {
+      method: shareId ? "PUT" : "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Share-Token": config.writeToken,
@@ -1989,26 +2031,41 @@ async function buildRemoteShareUrl(snapshot) {
     }
 
     const result = await response.json();
-    const id = String(result.id || "").trim();
-    if (!/^[A-Za-z0-9_-]{8,80}$/.test(id)) {
+    const id = String(result.id || shareId || "").trim();
+    if (!isValidShareId(id)) {
       throw new Error("Share API returned an invalid id");
     }
 
-    const url = new URL("./share.html?v=24", window.location.href);
-    url.searchParams.set("id", id);
-
-    const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
-    if (config.apiBaseUrl !== defaultApiBaseUrl) {
-      url.searchParams.set("api", config.apiBaseUrl);
-    }
-
-    return { url: url.toString(), warning: "" };
+    return { id };
   } catch {
-    return {
-      url: "",
-      warning: "共有APIへの保存に失敗したため、URL内保存の共有リンクを作成します。",
-    };
+    return { id: "" };
   }
+}
+
+function makeRemoteShareUrl(id, config) {
+  const url = new URL("./share.html?v=25", window.location.href);
+  url.searchParams.set("id", id);
+
+  const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
+  if (config.apiBaseUrl !== defaultApiBaseUrl) {
+    url.searchParams.set("api", config.apiBaseUrl);
+  }
+
+  return url.toString();
+}
+
+function syncRemoteShareAfterLocalSave() {
+  const matches = Array.isArray(state.matches) ? state.matches : [];
+  const config = normalizeShareConfig(shareConfig);
+  if (!matches.length || !config.apiBaseUrl || !config.writeToken) {
+    return;
+  }
+
+  buildRemoteShareUrl(createShareSnapshot(), { createOnUpdateFailure: false }).catch(() => {});
+}
+
+function isValidShareId(value) {
+  return SHARE_ID_PATTERN.test(String(value || "").trim());
 }
 
 function createShareSnapshot() {
