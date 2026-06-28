@@ -7,7 +7,7 @@
     <title>Mahjong Ledger</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=22" />
+    <link rel="stylesheet" href="./styles.css?v=23" />
   </head>
   <body>
     <div class="app-shell">
@@ -97,10 +97,12 @@
             <label>
               和了者
               <select id="winnerSelect"></select>
+              <span class="selector-wind" id="winnerWindDisplay"></span>
             </label>
             <label>
               放銃者
               <select id="loserSelect"></select>
+              <span class="selector-wind" id="loserWindDisplay"></span>
             </label>
           </div>
 
@@ -159,12 +161,15 @@
               <h2 id="settingsHeading">設定</h2>
             </div>
           </div>
-          <div class="settings-grid" id="settingsGrid"></div>
-          <div class="danger-zone" id="dangerZone"></div>
+          <details class="settings-details">
+            <summary>設定を開く</summary>
+            <div class="settings-grid" id="settingsGrid"></div>
+            <div class="danger-zone" id="dangerZone"></div>
+          </details>
         </section>
       </main>
     </div>
 
-    <script src="./app.js?v=22" defer></script>
+    <script src="./app.js?v=23" defer></script>
   </body>
 </html>

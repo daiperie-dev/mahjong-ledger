@@ -492,6 +492,42 @@ body[data-theme="dark"] .wind-chip.dealer {
   margin-bottom: 12px;
 }
 
+.selector-grid label {
+  min-height: 104px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+}
+
+.selector-grid select {
+  min-height: 52px;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.selector-wind {
+  display: flex;
+  min-height: 28px;
+  gap: 8px;
+  align-items: center;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.wind-chip.selector {
+  border-color: var(--gold);
+  background: var(--gold-soft);
+  color: #7a4b00;
+}
+
+.wind-chip.selector.dealer {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -1126,6 +1162,67 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   margin-top: 8px;
 }
 
+.ledger-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.ledger-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+}
+
+.ledger-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.ledger-table th,
+.ledger-table td {
+  min-width: 66px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ledger-table th {
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.ledger-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface-strong);
+}
+
+.metric-ledger {
+  min-width: 560px;
+}
+
+.metric-ledger tbody th {
+  text-align: left;
+}
+
+.match-ledger thead th {
+  background: var(--accent-soft);
+}
+
+.match-ledger thead tr:first-child th {
+  font-size: 0.82rem;
+}
+
+.day-delete-button {
+  justify-self: start;
+}
+
 .daily-summary {
   display: grid;
   gap: 8px;
@@ -1374,6 +1471,28 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   padding: 8px 10px;
   color: var(--ink);
   font-size: 0.82rem;
+}
+
+.settings-details {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-details summary {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+  color: var(--ink);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.settings-details[open] summary {
+  border-color: var(--accent-strong);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .setting-item input[type="number"] {

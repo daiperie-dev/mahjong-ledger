@@ -462,6 +462,63 @@ h2 {
   color: var(--ink);
 }
 
+.ledger-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.ledger-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+}
+
+.ledger-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.ledger-table th,
+.ledger-table td {
+  min-width: 66px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ledger-table th {
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.ledger-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface-strong);
+}
+
+.metric-ledger {
+  min-width: 560px;
+}
+
+.metric-ledger tbody th {
+  text-align: left;
+}
+
+.match-ledger thead th {
+  background: var(--accent-soft);
+}
+
+.match-ledger thead tr:first-child th {
+  font-size: 0.82rem;
+}
+
 .trend-chart {
   display: grid;
   margin-top: 12px;

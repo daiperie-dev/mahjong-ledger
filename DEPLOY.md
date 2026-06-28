@@ -24,13 +24,13 @@
 開くURL例:
 
 ```text
-https://ユーザー名.github.io/リポジトリ名/?v=22
+https://ユーザー名.github.io/リポジトリ名/?v=23
 ```
 
 共有ページ:
 
 ```text
-https://ユーザー名.github.io/リポジトリ名/share.html?v=22
+https://ユーザー名.github.io/リポジトリ名/share.html?v=23
 ```
 
 ## 既存データの移行
@@ -61,7 +61,7 @@ node --check service-worker.js
 
 For shorter LINE links, deploy the Cloudflare Worker in `worker/` and enter the Worker URL plus write token in the Mahjong Ledger settings on the recording iPad.
 
-Shared links then use `share.html?v=22&id=...` and read the saved snapshot from the Worker.
+Shared links then use `share.html?v=23&id=...` and read the saved snapshot from the Worker.
 
 Current Share API URL:
 

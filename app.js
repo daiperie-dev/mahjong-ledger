@@ -79,6 +79,8 @@ const elements = {
   handCount: document.querySelector("#handCount"),
   winnerSelect: document.querySelector("#winnerSelect"),
   loserSelect: document.querySelector("#loserSelect"),
+  winnerWindDisplay: document.querySelector("#winnerWindDisplay"),
+  loserWindDisplay: document.querySelector("#loserWindDisplay"),
   memoInput: document.querySelector("#memoInput"),
   advanceRound: document.querySelector("#advanceRound"),
   saveHandButton: document.querySelector("#saveHandButton"),
@@ -534,6 +536,27 @@ function renderSelectors() {
 
   elements.winnerSelect.disabled = isDraw;
   elements.loserSelect.disabled = !hasLoser;
+  if (elements.winnerWindDisplay) {
+    elements.winnerWindDisplay.innerHTML = isDraw ? "" : renderSelectorWindBadge(draft.winnerId);
+  }
+  if (elements.loserWindDisplay) {
+    elements.loserWindDisplay.innerHTML = hasLoser ? renderSelectorWindBadge(draft.loserId) : "";
+  }
+}
+
+function renderSelectorWindBadge(playerId) {
+  const player = state.players.find((item) => item.id === playerId);
+  if (!player) {
+    return "";
+  }
+
+  const wind = getPlayerWindMeta(player);
+  return `
+    <span class="wind-chip selector ${wind.isDealer ? "dealer" : ""}">
+      ${wind.label}${wind.isDealer ? "<small>親</small>" : ""}
+    </span>
+    <strong>${escapeHtml(player.name)}</strong>
+  `;
 }
 
 function renderModeTabs() {
@@ -772,6 +795,174 @@ function renderHistory() {
     .join("");
 }
 
+function renderArchiveLedger(matches, summaryLabel = "", withDeleteButtons = false, dayKey = "") {
+  const sortedMatches = getSortedMatches(matches);
+  const rows = getAggregateRows(sortedMatches);
+  const latestMatch = sortedMatches[0] || null;
+
+  return `
+    <div class="ledger-stack">
+      <div class="summary-cards">
+        <div class="summary-card"><span>${escapeHtml(summaryLabel || "半荘数")}</span><strong>${sortedMatches.length}</strong></div>
+        <div class="summary-card"><span>最新</span><strong>${escapeHtml(latestMatch ? formatDateTime(latestMatch.finishedAt) : "-")}</strong></div>
+      </div>
+      ${withDeleteButtons && dayKey ? `<button class="mini-delete-button danger day-delete-button" type="button" data-action="delete-day" data-day-key="${dayKey}">日削除</button>` : ""}
+      ${renderDayScoreStrip(rows)}
+      ${renderMetricLedger(rows)}
+      ${renderMatchLedger(sortedMatches)}
+    </div>
+  `;
+}
+
+function renderMetricLedger(rows) {
+  if (!rows.length) {
+    return `<div class="history-empty">表示できる集計がありません</div>`;
+  }
+
+  const medians = getRateMedians(rows);
+  const metrics = [
+    { label: "半荘数", value: (row) => row.games },
+    { label: "合計スコア", value: (row) => formatSigned(row.totalLeagueScore), tone: (row) => toneClass(row.totalLeagueScore) },
+    { label: "平均順位", value: (row) => row.averageRank.toFixed(2) },
+    { label: "トップ率", value: (row) => formatRateValue(row.topRate), tone: (row) => rateToneClass(row.topRate, medians.topRate) },
+    { label: "連対率", value: (row) => formatRateValue(row.rentaiRate), tone: (row) => rateToneClass(row.rentaiRate, medians.rentaiRate) },
+    { label: "4着回避率", value: (row) => formatRateValue(row.avoidLastRate), tone: (row) => rateToneClass(row.avoidLastRate, medians.avoidLastRate) },
+    { label: "トビ率", value: (row) => formatRateValue(row.tobiRate), tone: (row) => rateToneClass(row.tobiRate, medians.tobiRate, true) },
+    { label: "トバし率", value: (row) => formatRateValue(row.tobashiRate), tone: (row) => rateToneClass(row.tobashiRate, medians.tobashiRate) },
+    { label: "和了率", value: (row) => formatRateValue(row.winRate), tone: (row) => rateToneClass(row.winRate, medians.winRate) },
+    { label: "放銃率", value: (row) => formatRateValue(row.dealInRate), tone: (row) => rateToneClass(row.dealInRate, medians.dealInRate, true) },
+    { label: "リーチ率", value: (row) => formatRateValue(row.riichiRate), tone: (row) => rateToneClass(row.riichiRate, medians.riichiRate) },
+    { label: "副露率", value: (row) => formatRateValue(row.callRate), tone: (row) => rateToneClass(row.callRate, medians.callRate) },
+  ];
+
+  return `
+    <div class="ledger-scroll">
+      <table class="ledger-table metric-ledger">
+        <thead>
+          <tr>
+            <th>項目</th>
+            ${rows.map((row) => `<th>${escapeHtml(row.name)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${metrics
+            .map((metric) => `
+              <tr>
+                <th>${metric.label}</th>
+                ${rows
+                  .map((row) => `<td class="${metric.tone ? metric.tone(row) : ""}">${metric.value(row)}</td>`)
+                  .join("")}
+              </tr>
+            `)
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMatchLedger(matches) {
+  const sheetPlayers = getLedgerPlayers(matches);
+  if (!matches.length || !sheetPlayers.length) {
+    return `<div class="history-empty">表示できる半荘がありません</div>`;
+  }
+
+  const subColumns = ["順位", "チップ", "半荘スコア", "トビ", "トバし", "トバし賞", "点数", "素点丸め", "ウマ"];
+  const chronological = getSortedMatches(matches).reverse();
+
+  return `
+    <div class="ledger-scroll">
+      <table class="ledger-table match-ledger">
+        <thead>
+          <tr>
+            <th rowspan="2">半荘</th>
+            <th rowspan="2">保存時刻</th>
+            ${sheetPlayers.map((player) => `<th colspan="${subColumns.length}">${escapeHtml(player.name)}</th>`).join("")}
+          </tr>
+          <tr>
+            ${sheetPlayers.map(() => subColumns.map((column) => `<th>${column}</th>`).join("")).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${chronological
+            .map((match) => `
+              <tr>
+                <th>${escapeHtml(match.label || `半荘${match.number || ""}`)}</th>
+                <td>${escapeHtml(formatDateTime(match.finishedAt))}</td>
+                ${sheetPlayers.map((player) => renderMatchLedgerPlayerCells(match, player.id)).join("")}
+              </tr>
+            `)
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMatchLedgerPlayerCells(match, playerId) {
+  const player = (match.players || []).find((item) => item.id === playerId);
+  if (!player) {
+    return Array.from({ length: 9 }, () => `<td></td>`).join("");
+  }
+
+  const leagueScore = getPlayerLeagueScore(player, match);
+  const chipDiff = getPlayerChipDiff(player);
+  const scoreDiff = getPlayerScoreDiff(player);
+  const tobashiShare = Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+  const isBusted = Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id);
+
+  return [
+    `<td>${player.rank || getRanksForPlayers(match.players || []).get(player.id) || ""}</td>`,
+    `<td class="${toneClass(chipDiff)}">${formatSigned(chipDiff)}</td>`,
+    `<td class="${toneClass(leagueScore)}">${formatSigned(leagueScore)}</td>`,
+    `<td>${isBusted ? "1" : ""}</td>`,
+    `<td>${tobashiShare ? tobashiShare : ""}</td>`,
+    `<td class="${toneClass(getPlayerTobashiBonus(player, match))}">${formatSigned(getPlayerTobashiBonus(player, match))}</td>`,
+    `<td>${formatNumber(player.score || 0)}</td>`,
+    `<td class="${toneClass(getPlayerRoundedScore(player))}">${formatSigned(getPlayerRoundedScore(player))}</td>`,
+    `<td class="${toneClass(getPlayerUma(player, match))}">${formatSigned(getPlayerUma(player, match))}</td>`,
+  ].join("");
+}
+
+function getMatchLedgerCsvCells(match, playerId) {
+  const player = (match.players || []).find((item) => item.id === playerId);
+  if (!player) {
+    return Array(9).fill("");
+  }
+
+  const tobashiShare = Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+  const isBusted = Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id);
+
+  return [
+    player.rank || getRanksForPlayers(match.players || []).get(player.id) || "",
+    formatSigned(getPlayerChipDiff(player)),
+    formatSigned(getPlayerLeagueScore(player, match)),
+    isBusted ? 1 : "",
+    tobashiShare || "",
+    formatSigned(getPlayerTobashiBonus(player, match)),
+    Number(player.score || 0),
+    formatSigned(getPlayerRoundedScore(player)),
+    formatSigned(getPlayerUma(player, match)),
+  ];
+}
+
+function getLedgerPlayers(matches) {
+  const players = new Map();
+  state.players.forEach((player) => {
+    players.set(player.id, { id: player.id, name: player.name || defaultPlayerName(player.seat) });
+  });
+
+  getSortedMatches(matches).reverse().forEach((match) => {
+    (match.players || []).forEach((player) => {
+      if (!players.has(player.id)) {
+        players.set(player.id, { id: player.id, name: player.name || "" });
+      }
+    });
+  });
+
+  return Array.from(players.values()).filter((player) => player.id);
+}
+
 function renderSummary() {
   const matches = getSortedMatches(state.matches || []);
   const scopedMatches = archiveScope === "today" ? getLatestMatchDayMatches(matches) : matches;
@@ -788,7 +979,7 @@ function renderSummary() {
 
   if (archiveScope === "daily") {
     elements.summaryStats.innerHTML = renderDailySummaries(matches, true);
-    elements.trendChart.innerHTML = "";
+    elements.trendChart.innerHTML = renderScoreTrend(matches);
     elements.matchList.innerHTML = "";
     return;
   }
@@ -829,6 +1020,10 @@ function renderSummary() {
         .join("")}
     </div>
   `;
+  elements.summaryStats.innerHTML = renderArchiveLedger(
+    scopedMatches,
+    archiveScope === "today" ? `当日 ${dayLabel}` : "総合"
+  );
   elements.trendChart.innerHTML = renderScoreTrend(scopedMatches);
 
   elements.matchList.innerHTML = scopedMatches
@@ -859,9 +1054,32 @@ function renderSummary() {
       `;
     })
     .join("");
+  elements.matchList.innerHTML = "";
 }
 
 function renderDailySummaries(matches, withDeleteButtons = false) {
+  {
+    const groups = getMatchDayGroups(matches);
+    if (groups.length === 0) {
+      return `<div class="history-empty">日別に表示できる半荘がありません</div>`;
+    }
+
+    return groups
+      .map((group) => `
+        <section class="daily-summary">
+          <div class="daily-summary-head">
+            <div>
+              <strong>${escapeHtml(group.label)}</strong>
+              <span>${group.matches.length}半荘</span>
+            </div>
+            ${withDeleteButtons ? `<button class="mini-delete-button danger" type="button" data-action="delete-day" data-day-key="${group.key}">日削除</button>` : ""}
+          </div>
+          ${renderArchiveLedger(group.matches, group.label)}
+        </section>
+      `)
+      .join("");
+  }
+
   const groups = getMatchDayGroups(matches);
   if (groups.length === 0) {
     return `<div class="history-empty">日別に表示できる半荘がありません</div>`;
@@ -1673,7 +1891,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=22", window.location.href);
+  const url = new URL("./share.html?v=23", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -1708,7 +1926,7 @@ async function buildRemoteShareUrl(snapshot) {
       throw new Error("Share API returned an invalid id");
     }
 
-    const url = new URL("./share.html?v=22", window.location.href);
+    const url = new URL("./share.html?v=23", window.location.href);
     url.searchParams.set("id", id);
 
     const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
@@ -1872,6 +2090,47 @@ function buildSheetCsv(matches) {
   const rows = [];
   const sortedMatches = getSortedMatches(matches);
   const aggregateRows = getAggregateRows(sortedMatches);
+  const sheetPlayers = getLedgerPlayers(sortedMatches);
+  const matchColumns = ["順位", "チップ", "半荘スコア", "トビ", "トバし", "トバし賞", "点数", "素点丸め", "ウマ"];
+
+  rows.push(["半荘成績"]);
+  rows.push([
+    "半荘",
+    "保存日時",
+    "終了理由",
+    ...sheetPlayers.flatMap((player) => [player.name, ...Array(matchColumns.length - 1).fill("")]),
+  ]);
+  rows.push(["", "", "", ...sheetPlayers.flatMap(() => matchColumns)]);
+  sortedMatches.reverse().forEach((match) => {
+    rows.push([
+      match.label || `半荘${match.number || ""}`,
+      formatCsvDateTime(match.finishedAt),
+      match.endReason || "保存済み",
+      ...sheetPlayers.flatMap((sheetPlayer) => getMatchLedgerCsvCells(match, sheetPlayer.id)),
+    ]);
+  });
+
+  rows.push([]);
+  rows.push(["集計"]);
+  rows.push(["項目", ...aggregateRows.map((row) => row.name)]);
+  [
+    ["半荘数", (row) => row.games],
+    ["合計スコア", (row) => formatSigned(row.totalLeagueScore)],
+    ["平均順位", (row) => row.averageRank.toFixed(2)],
+    ["トップ率", (row) => formatRateValue(row.topRate)],
+    ["連対率", (row) => formatRateValue(row.rentaiRate)],
+    ["4着回避率", (row) => formatRateValue(row.avoidLastRate)],
+    ["トビ率", (row) => formatRateValue(row.tobiRate)],
+    ["トバし率", (row) => formatRateValue(row.tobashiRate)],
+    ["和了率", (row) => formatRateValue(row.winRate)],
+    ["放銃率", (row) => formatRateValue(row.dealInRate)],
+    ["リーチ率", (row) => formatRateValue(row.riichiRate)],
+    ["副露率", (row) => formatRateValue(row.callRate)],
+  ].forEach(([label, getter]) => {
+    rows.push([label, ...aggregateRows.map((row) => getter(row))]);
+  });
+
+  return `\uFEFF${rows.map(toCsvRow).join("\r\n")}`;
 
   rows.push(["総合成績"]);
   rows.push(["順位", "名前", "半荘", "合計スコア", "平均スコア", "チップ差", "平均順位", "トップ率", "連対率", "4着回避率", "トビ率", "トバし率", "トバし賞", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);

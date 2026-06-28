@@ -366,9 +366,19 @@ function render(state, source) {
       : rows.length
         ? `${currentScope === "today" ? renderDayScoreStrip(rows) : ""}${renderStandings(rows, medians)}`
         : renderEmpty(currentScope === "today" ? "当日の半荘がありません" : "保存済み半荘がありません");
+  elements.standingsTable.innerHTML =
+    currentScope === "daily"
+      ? renderDailySummaries(matches)
+      : scopedMatches.length
+        ? renderArchiveLedger(scopedMatches, currentScope === "today" ? `当日 ${dayLabel}` : "総合")
+        : renderEmpty(currentScope === "today" ? "当日の半荘がありません" : "保存済み半荘がありません");
   elements.standingsTable.scrollLeft = 0;
   elements.trendChart.innerHTML = currentScope !== "daily" && scopedMatches.length ? renderScoreTrend(scopedMatches) : "";
+  elements.trendChart.innerHTML = (currentScope === "daily" ? matches.length : scopedMatches.length)
+    ? renderScoreTrend(currentScope === "daily" ? matches : scopedMatches)
+    : "";
   elements.matchList.innerHTML = scopedMatches.length ? renderMatches(scopedMatches) : renderEmpty("半荘保存後にここへ反映されます");
+  elements.matchList.innerHTML = "";
 }
 
 function renderSummaryCards(summary) {
@@ -452,6 +462,170 @@ function renderStandings(rows, medians) {
   return header + body;
 }
 
+function renderArchiveLedger(matches, summaryLabel = "") {
+  const sortedMatches = getSortedMatches(matches);
+  const rows = getAggregateRows(sortedMatches);
+  const latestMatch = sortedMatches[0] || null;
+
+  return `
+    <div class="ledger-stack">
+      <div class="summary-cards">
+        <div class="summary-card"><span>${escapeHtml(summaryLabel || "半荘数")}</span><strong>${sortedMatches.length}</strong></div>
+        <div class="summary-card"><span>最新</span><strong>${escapeHtml(latestMatch ? formatDate(latestMatch.finishedAt) : "-")}</strong></div>
+      </div>
+      ${renderDayScoreStrip(rows)}
+      ${renderMetricLedger(rows)}
+      ${renderMatchLedger(sortedMatches)}
+    </div>
+  `;
+}
+
+function renderMetricLedger(rows) {
+  if (!rows.length) {
+    return renderEmpty("表示できる集計がありません");
+  }
+
+  const medians = getRateMedians(rows);
+  const metrics = [
+    { label: "半荘数", value: (row) => row.games },
+    { label: "合計スコア", value: (row) => formatSigned(row.totalLeagueScore), tone: (row) => toneClass(row.totalLeagueScore) },
+    { label: "平均順位", value: (row) => row.averageRank.toFixed(2) },
+    { label: "トップ率", value: (row) => formatRate(row.topRate), tone: (row) => rateToneClass(row.topRate, medians.topRate) },
+    { label: "連対率", value: (row) => formatRate(row.rentaiRate), tone: (row) => rateToneClass(row.rentaiRate, medians.rentaiRate) },
+    { label: "4着回避率", value: (row) => formatRate(row.avoidLastRate), tone: (row) => rateToneClass(row.avoidLastRate, medians.avoidLastRate) },
+    { label: "トビ率", value: (row) => formatRate(row.tobiRate), tone: (row) => rateToneClass(row.tobiRate, medians.tobiRate, true) },
+    { label: "トバし率", value: (row) => formatRate(row.tobashiRate), tone: (row) => rateToneClass(row.tobashiRate, medians.tobashiRate) },
+    { label: "和了率", value: (row) => formatRate(row.winRate), tone: (row) => rateToneClass(row.winRate, medians.winRate) },
+    { label: "放銃率", value: (row) => formatRate(row.dealInRate), tone: (row) => rateToneClass(row.dealInRate, medians.dealInRate, true) },
+    { label: "リーチ率", value: (row) => formatRate(row.riichiRate), tone: (row) => rateToneClass(row.riichiRate, medians.riichiRate) },
+    { label: "副露率", value: (row) => formatRate(row.callRate), tone: (row) => rateToneClass(row.callRate, medians.callRate) },
+  ];
+
+  return `
+    <div class="ledger-scroll">
+      <table class="ledger-table metric-ledger">
+        <thead>
+          <tr>
+            <th>項目</th>
+            ${rows.map((row) => `<th>${escapeHtml(row.name)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${metrics
+            .map((metric) => `
+              <tr>
+                <th>${metric.label}</th>
+                ${rows.map((row) => `<td class="${metric.tone ? metric.tone(row) : ""}">${metric.value(row)}</td>`).join("")}
+              </tr>
+            `)
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMatchLedger(matches) {
+  const sheetPlayers = getLedgerPlayers(matches);
+  if (!matches.length || !sheetPlayers.length) {
+    return renderEmpty("表示できる半荘がありません");
+  }
+
+  const subColumns = ["順位", "チップ", "半荘スコア", "トビ", "トバし", "トバし賞", "点数", "素点丸め", "ウマ"];
+  const chronological = getSortedMatches(matches).reverse();
+
+  return `
+    <div class="ledger-scroll">
+      <table class="ledger-table match-ledger">
+        <thead>
+          <tr>
+            <th rowspan="2">半荘</th>
+            <th rowspan="2">保存時刻</th>
+            ${sheetPlayers.map((player) => `<th colspan="${subColumns.length}">${escapeHtml(player.name)}</th>`).join("")}
+          </tr>
+          <tr>
+            ${sheetPlayers.map(() => subColumns.map((column) => `<th>${column}</th>`).join("")).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${chronological
+            .map((match) => `
+              <tr>
+                <th>${escapeHtml(match.label || `半荘${match.number || ""}`)}</th>
+                <td>${escapeHtml(formatDate(match.finishedAt))}</td>
+                ${sheetPlayers.map((player) => renderMatchLedgerPlayerCells(match, player.id)).join("")}
+              </tr>
+            `)
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMatchLedgerPlayerCells(match, playerId) {
+  const player = (match.players || []).find((item) => item.id === playerId);
+  if (!player) {
+    return Array.from({ length: 9 }, () => `<td></td>`).join("");
+  }
+
+  const leagueScore = getPlayerLeagueScore(player, match);
+  const chipDiff = getPlayerChipDiff(player);
+  const tobashiShare = Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+  const isBusted = Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id);
+
+  return [
+    `<td>${player.rank || getRanksForPlayers(match.players || []).get(player.id) || ""}</td>`,
+    `<td class="${toneClass(chipDiff)}">${formatSigned(chipDiff)}</td>`,
+    `<td class="${toneClass(leagueScore)}">${formatSigned(leagueScore)}</td>`,
+    `<td>${isBusted ? "1" : ""}</td>`,
+    `<td>${tobashiShare ? tobashiShare : ""}</td>`,
+    `<td class="${toneClass(getPlayerTobashiBonus(player, match))}">${formatSigned(getPlayerTobashiBonus(player, match))}</td>`,
+    `<td>${formatNumber(player.score || 0)}</td>`,
+    `<td class="${toneClass(getPlayerRoundedScore(player))}">${formatSigned(getPlayerRoundedScore(player))}</td>`,
+    `<td class="${toneClass(getPlayerUma(player, match))}">${formatSigned(getPlayerUma(player, match))}</td>`,
+  ].join("");
+}
+
+function getMatchLedgerCsvCells(match, playerId) {
+  const player = (match.players || []).find((item) => item.id === playerId);
+  if (!player) {
+    return Array(9).fill("");
+  }
+
+  const tobashiShare = Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+  const isBusted = Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id);
+
+  return [
+    player.rank || getRanksForPlayers(match.players || []).get(player.id) || "",
+    formatSigned(getPlayerChipDiff(player)),
+    formatSigned(getPlayerLeagueScore(player, match)),
+    isBusted ? 1 : "",
+    tobashiShare || "",
+    formatSigned(getPlayerTobashiBonus(player, match)),
+    Number(player.score || 0),
+    formatSigned(getPlayerRoundedScore(player)),
+    formatSigned(getPlayerUma(player, match)),
+  ];
+}
+
+function getLedgerPlayers(matches) {
+  const players = new Map();
+  (currentState.players || []).forEach((player) => {
+    players.set(player.id, { id: player.id, name: player.name || "" });
+  });
+
+  getSortedMatches(matches).reverse().forEach((match) => {
+    (match.players || []).forEach((player) => {
+      if (!players.has(player.id)) {
+        players.set(player.id, { id: player.id, name: player.name || "" });
+      }
+    });
+  });
+
+  return Array.from(players.values()).filter((player) => player.id);
+}
+
 function renderMatches(matches) {
   return matches
     .slice(0, 30)
@@ -500,6 +674,27 @@ function renderMatches(matches) {
 }
 
 function renderDailySummaries(matches) {
+  {
+    const groups = getMatchDayGroups(matches);
+    if (groups.length === 0) {
+      return renderEmpty("日別に表示できる半荘がありません");
+    }
+
+    return groups
+      .map((group) => `
+        <section class="daily-summary">
+          <div class="daily-summary-head">
+            <div>
+              <strong>${escapeHtml(group.label)}</strong>
+              <span>${group.matches.length}半荘</span>
+            </div>
+          </div>
+          ${renderArchiveLedger(group.matches, group.label)}
+        </section>
+      `)
+      .join("");
+  }
+
   const groups = getMatchDayGroups(matches);
   if (groups.length === 0) {
     return renderEmpty("日別に表示できる半荘がありません");
@@ -664,6 +859,48 @@ function renderEmpty(message) {
 function buildSheetCsv(matches) {
   const rows = [];
   const aggregateRows = getAggregateRows(matches);
+  const sortedMatches = getSortedMatches(matches);
+  const sheetPlayers = getLedgerPlayers(sortedMatches);
+  const matchColumns = ["順位", "チップ", "半荘スコア", "トビ", "トバし", "トバし賞", "点数", "素点丸め", "ウマ"];
+
+  rows.push(["半荘成績"]);
+  rows.push([
+    "半荘",
+    "保存日時",
+    "終了理由",
+    ...sheetPlayers.flatMap((player) => [player.name, ...Array(matchColumns.length - 1).fill("")]),
+  ]);
+  rows.push(["", "", "", ...sheetPlayers.flatMap(() => matchColumns)]);
+  sortedMatches.reverse().forEach((match) => {
+    rows.push([
+      match.label || `半荘${match.number || ""}`,
+      formatDate(match.finishedAt),
+      match.endReason || "保存済み",
+      ...sheetPlayers.flatMap((sheetPlayer) => getMatchLedgerCsvCells(match, sheetPlayer.id)),
+    ]);
+  });
+
+  rows.push([]);
+  rows.push(["集計"]);
+  rows.push(["項目", ...aggregateRows.map((row) => row.name)]);
+  [
+    ["半荘数", (row) => row.games],
+    ["合計スコア", (row) => formatSigned(row.totalLeagueScore)],
+    ["平均順位", (row) => row.averageRank.toFixed(2)],
+    ["トップ率", (row) => formatRate(row.topRate)],
+    ["連対率", (row) => formatRate(row.rentaiRate)],
+    ["4着回避率", (row) => formatRate(row.avoidLastRate)],
+    ["トビ率", (row) => formatRate(row.tobiRate)],
+    ["トバし率", (row) => formatRate(row.tobashiRate)],
+    ["和了率", (row) => formatRate(row.winRate)],
+    ["放銃率", (row) => formatRate(row.dealInRate)],
+    ["リーチ率", (row) => formatRate(row.riichiRate)],
+    ["副露率", (row) => formatRate(row.callRate)],
+  ].forEach(([label, getter]) => {
+    rows.push([label, ...aggregateRows.map((row) => getter(row))]);
+  });
+
+  return `\uFEFF${rows.map(toCsvRow).join("\r\n")}`;
 
   rows.push(["総合成績"]);
   rows.push(["順位", "名前", "半荘", "合計スコア", "平均スコア", "チップ差", "平均順位", "トップ率", "連対率", "4着回避率", "トビ率", "トバし率", "トバし賞", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
