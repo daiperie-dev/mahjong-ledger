@@ -1,5 +1,7 @@
 const STORAGE_KEY = "mahjong-ledger-state-v1";
 const THEME_KEY = "mahjong-ledger-theme-v1";
+const SHARE_CONFIG_KEY = "mahjong-ledger-share-config-v1";
+const DEFAULT_REMOTE_SHARE_API_BASE_URL = "";
 const STARTING_SCORE = 25000;
 const STARTING_CHIPS = 20;
 const ROUNDS = ["東1局", "東2局", "東3局", "東4局", "南1局", "南2局", "南3局", "南4局"];
@@ -59,6 +61,10 @@ const SETTINGS = [
   { key: "safetyScoreDirection", label: "支払い向き確認", type: "checkbox" },
   { key: "safetyDrawNoTenpai", label: "流局聴牌確認", type: "checkbox" },
 ];
+const SHARE_CONFIG_FIELDS = [
+  { key: "apiBaseUrl", label: "共有API URL", type: "url", placeholder: "https://example.workers.dev" },
+  { key: "writeToken", label: "保存キー", type: "password", placeholder: "記録端末のみ" },
+];
 
 const elements = {
   playersGrid: document.querySelector("#playersGrid"),
@@ -95,6 +101,7 @@ const elements = {
 
 let state = loadState();
 let draft = createDraft(state);
+let shareConfig = loadShareConfig();
 let archiveScope = "overall";
 
 applyTheme(localStorage.getItem(THEME_KEY) || "light");
@@ -232,6 +239,26 @@ function normalizeSettingsPayload(settings) {
   }
 
   return normalized;
+}
+
+function loadShareConfig() {
+  try {
+    const stored = localStorage.getItem(SHARE_CONFIG_KEY);
+    return normalizeShareConfig(stored ? JSON.parse(stored) : {});
+  } catch {
+    return normalizeShareConfig({});
+  }
+}
+
+function normalizeShareConfig(config) {
+  return {
+    apiBaseUrl: normalizeShareApiBaseUrl(config.apiBaseUrl || DEFAULT_REMOTE_SHARE_API_BASE_URL),
+    writeToken: String(config.writeToken || "").trim(),
+  };
+}
+
+function saveShareConfig() {
+  localStorage.setItem(SHARE_CONFIG_KEY, JSON.stringify(shareConfig));
 }
 
 function saveState() {
@@ -390,6 +417,15 @@ function handleChange(event) {
     saveState();
     render();
   }
+
+  if (target.matches("[data-share-config]")) {
+    const key = target.dataset.shareConfig;
+    shareConfig = normalizeShareConfig({
+      ...shareConfig,
+      [key]: target.value,
+    });
+    saveShareConfig();
+  }
 }
 
 function handleInput(event) {
@@ -397,6 +433,15 @@ function handleInput(event) {
 
   if (target === elements.memoInput) {
     draft.memo = target.value;
+  }
+
+  if (target.matches("[data-share-config]")) {
+    const key = target.dataset.shareConfig;
+    shareConfig = {
+      ...shareConfig,
+      [key]: target.value,
+    };
+    saveShareConfig();
   }
 }
 
@@ -982,7 +1027,7 @@ function renderScoreTrend(matches) {
 }
 
 function renderSettings() {
-  elements.settingsGrid.innerHTML = SETTINGS.map((setting) => {
+  const ruleSettingsHtml = SETTINGS.map((setting) => {
     const value = state.settings[setting.key];
     if (setting.type === "number") {
       const step = setting.step || 100;
@@ -1014,6 +1059,25 @@ function renderSettings() {
       </label>
     `;
   }).join("");
+
+  const shareSettingsHtml = SHARE_CONFIG_FIELDS.map((field) => `
+    <label class="setting-item share-setting">
+      <span>${field.label}</span>
+      <input
+        type="${field.type}"
+        data-share-config="${field.key}"
+        value="${escapeHtml(shareConfig[field.key] || "")}"
+        placeholder="${escapeHtml(field.placeholder || "")}"
+        autocomplete="off"
+      />
+    </label>
+  `).join("");
+
+  elements.settingsGrid.innerHTML = `
+    ${ruleSettingsHtml}
+    <div class="settings-subhead">共有API</div>
+    ${shareSettingsHtml}
+  `;
 
   if (elements.dangerZone) {
     const savedMatchCount = Array.isArray(state.matches) ? state.matches.length : 0;
@@ -1575,7 +1639,11 @@ async function shareSnapshotLink() {
     return;
   }
 
-  const url = await buildShareUrl();
+  const shareResult = await buildShareUrl();
+  const url = shareResult.url;
+  if (shareResult.warning) {
+    window.alert(shareResult.warning);
+  }
   const title = "Mahjong Ledger 共有成績";
 
   try {
@@ -1599,11 +1667,62 @@ async function shareSnapshotLink() {
 }
 
 async function buildShareUrl() {
-  const url = new URL("./share.html?v=20", window.location.href);
   const snapshot = createShareSnapshot();
+  const remoteShare = await buildRemoteShareUrl(snapshot);
+  if (remoteShare.url) {
+    return remoteShare;
+  }
+
+  const url = new URL("./share.html?v=21", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
-  return url.toString();
+  return {
+    url: url.toString(),
+    warning: remoteShare.warning,
+  };
+}
+
+async function buildRemoteShareUrl(snapshot) {
+  const config = normalizeShareConfig(shareConfig);
+  if (!config.apiBaseUrl || !config.writeToken) {
+    return { url: "", warning: "" };
+  }
+
+  try {
+    const response = await fetch(`${config.apiBaseUrl}/snapshots`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Share-Token": config.writeToken,
+      },
+      body: JSON.stringify(snapshot),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Share API responded ${response.status}`);
+    }
+
+    const result = await response.json();
+    const id = String(result.id || "").trim();
+    if (!/^[A-Za-z0-9_-]{8,80}$/.test(id)) {
+      throw new Error("Share API returned an invalid id");
+    }
+
+    const url = new URL("./share.html?v=21", window.location.href);
+    url.searchParams.set("id", id);
+
+    const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
+    if (config.apiBaseUrl !== defaultApiBaseUrl) {
+      url.searchParams.set("api", config.apiBaseUrl);
+    }
+
+    return { url: url.toString(), warning: "" };
+  } catch {
+    return {
+      url: "",
+      warning: "共有APIへの保存に失敗したため、URL内保存の共有リンクを作成します。",
+    };
+  }
 }
 
 function createShareSnapshot() {
@@ -1668,6 +1787,10 @@ function pickShareSettings(settings) {
     }
     return picked;
   }, {});
+}
+
+function normalizeShareApiBaseUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
 }
 
 function encodeSharePayload(payload) {

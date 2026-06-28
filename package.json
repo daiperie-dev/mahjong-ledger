@@ -1,10 +1,10 @@
 {
   "name": "mahjong-ledger",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
-    "check": "node --check app.js && node --check share.js && node --check service-worker.js"
+    "check": "node --check app.js && node --check share.js && node --check service-worker.js && node --check worker/src/index.js"
   }
 }

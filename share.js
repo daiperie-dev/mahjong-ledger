@@ -1,4 +1,5 @@
 const STORAGE_KEY = "mahjong-ledger-state-v1";
+const DEFAULT_REMOTE_SHARE_API_BASE_URL = "";
 const STARTING_SCORE = 25000;
 const STARTING_CHIPS = 20;
 const DEFAULT_UMA = [30, 10, -10, -30];
@@ -108,9 +109,18 @@ function loadLocalState() {
 
 async function loadSharedStateFromUrl() {
   const hash = window.location.hash || "";
-  const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
-  const compressed = params.get("z");
-  const encoded = params.get("data");
+  const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+  const searchParams = new URLSearchParams(window.location.search || "");
+  const remoteId = searchParams.get("id") || hashParams.get("id");
+  const compressed = hashParams.get("z");
+  const encoded = hashParams.get("data");
+
+  if (remoteId) {
+    const apiBaseUrl = normalizeShareApiBaseUrl(
+      searchParams.get("api") || hashParams.get("api") || DEFAULT_REMOTE_SHARE_API_BASE_URL
+    );
+    return loadRemoteSharedState(remoteId, apiBaseUrl);
+  }
 
   if (!compressed && !encoded) {
     return null;
@@ -118,6 +128,25 @@ async function loadSharedStateFromUrl() {
 
   try {
     const payload = compressed ? await decodeCompressedSharePayload(compressed) : decodeSharePayload(encoded);
+    return normalizeSharedPayload(payload);
+  } catch {
+    return null;
+  }
+}
+
+async function loadRemoteSharedState(id, apiBaseUrl) {
+  const normalizedId = String(id || "").trim();
+  if (!apiBaseUrl || !/^[A-Za-z0-9_-]{8,80}$/.test(normalizedId)) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/snapshots/${encodeURIComponent(normalizedId)}`);
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json();
     return normalizeSharedPayload(payload);
   } catch {
     return null;
@@ -153,6 +182,10 @@ function decodeBase64UrlToBytes(encoded) {
   }
 
   return bytes;
+}
+
+function normalizeShareApiBaseUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
 }
 
 function decodeUtf8Bytes(bytes) {

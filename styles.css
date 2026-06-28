@@ -1388,6 +1388,27 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   padding: 0 8px;
 }
 
+.settings-subhead {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.share-setting {
+  grid-column: 1 / -1;
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.share-setting input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+}
+
 .checkbox-setting {
   justify-content: flex-start;
 }
