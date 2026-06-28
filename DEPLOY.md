@@ -24,13 +24,13 @@
 開くURL例:
 
 ```text
-https://ユーザー名.github.io/リポジトリ名/?v=13
+https://ユーザー名.github.io/リポジトリ名/?v=14
 ```
 
 共有ページ:
 
 ```text
-https://ユーザー名.github.io/リポジトリ名/share.html?v=13
+https://ユーザー名.github.io/リポジトリ名/share.html?v=14
 ```
 
 ## 既存データの移行

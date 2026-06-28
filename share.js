@@ -19,12 +19,20 @@ const elements = {
   scopeButtons: document.querySelectorAll("[data-scope]"),
 };
 
-let currentState = loadLocalState();
+const initialSharedState = loadSharedStateFromUrl();
+let usingSharedUrl = Boolean(initialSharedState);
+let currentState = initialSharedState || loadLocalState();
 let currentSource = {
   label: "ローカル保存",
   detail: currentState.matches.length ? "この端末の保存済み半荘を表示しています" : "保存済み半荘はまだありません",
 };
 let currentScope = "overall";
+
+if (usingSharedUrl) {
+  currentSource = getSharedUrlSource();
+} else if (!currentState.matches.length) {
+  currentSource.detail = "この端末に保存済み半荘はありません。本体の共有リンクから開くと外部端末でも表示できます。";
+}
 
 render(currentState, currentSource);
 
@@ -42,6 +50,10 @@ elements.scopeButtons.forEach((button) => {
 });
 
 window.addEventListener("storage", (event) => {
+  if (usingSharedUrl) {
+    return;
+  }
+
   if (event.key !== STORAGE_KEY) {
     return;
   }
@@ -54,6 +66,25 @@ window.addEventListener("storage", (event) => {
   render(currentState, currentSource);
 });
 
+window.addEventListener("hashchange", () => {
+  const nextSharedState = loadSharedStateFromUrl();
+  if (!nextSharedState) {
+    return;
+  }
+
+  usingSharedUrl = true;
+  currentState = nextSharedState;
+  currentSource = getSharedUrlSource();
+  render(currentState, currentSource);
+});
+
+function getSharedUrlSource() {
+  return {
+    label: "共有リンク",
+    detail: "リンク内の成績データを表示しています",
+  };
+}
+
 function loadLocalState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -61,6 +92,95 @@ function loadLocalState() {
   } catch {
     return normalizeState({});
   }
+}
+
+function loadSharedStateFromUrl() {
+  const hash = window.location.hash || "";
+  const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+  const encoded = params.get("data");
+
+  if (!encoded) {
+    return null;
+  }
+
+  try {
+    return normalizeSharedPayload(decodeSharePayload(encoded));
+  } catch {
+    return null;
+  }
+}
+
+function decodeSharePayload(encoded) {
+  const base64 = encoded
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(encoded.length / 4) * 4, "=");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function normalizeSharedPayload(payload) {
+  if (payload && Array.isArray(payload.matches)) {
+    return normalizeState(payload);
+  }
+
+  return normalizeState({
+    createdAt: payload && payload.c ? payload.c : "",
+    settings: payload && payload.s ? payload.s : {},
+    players: payload && Array.isArray(payload.p) ? payload.p.map(expandSharedRootPlayer) : [],
+    matches: payload && Array.isArray(payload.m) ? payload.m.map(expandSharedMatch) : [],
+  });
+}
+
+function expandSharedRootPlayer(row) {
+  return {
+    id: row[0],
+    seat: Number(row[1] || 0),
+    name: row[2] || "",
+  };
+}
+
+function expandSharedMatch(match) {
+  return {
+    number: match.n,
+    label: match.l || `半荘${match.n || ""}`,
+    startedAt: match.st || "",
+    finishedAt: match.f || "",
+    endReason: match.e || "保存済み",
+    bustedIds: Array.isArray(match.b) ? match.b : [],
+    tobashiIds: Array.isArray(match.ti) ? match.ti : [],
+    tobashiShares: match.ts || {},
+    settings: normalizeSettings(match.s || {}),
+    players: Array.isArray(match.p) ? match.p.map(expandSharedPlayer) : [],
+  };
+}
+
+function expandSharedPlayer(row) {
+  return {
+    id: row[0],
+    seat: Number(row[1] || 0),
+    name: row[2] || "名前なし",
+    score: Number(row[3] || 0),
+    rank: Number(row[4] || 4),
+    scoreDiff: Number(row[5] || 0),
+    roundedScore: Number(row[6] || 0),
+    uma: Number(row[7] || 0),
+    tobashiBonus: Number(row[8] || 0),
+    leagueScore: Number(row[9] || 0),
+    chipDiff: Number(row[10] || 0),
+    chips: Number(row[11] ?? STARTING_CHIPS),
+    hands: Number(row[12] || 0),
+    calls: Number(row[13] || 0),
+    riichi: Number(row[14] || 0),
+    wins: Number(row[15] || 0),
+    dealIns: Number(row[16] || 0),
+  };
 }
 
 function handleImportFile(event) {
@@ -73,6 +193,7 @@ function handleImportFile(event) {
   reader.addEventListener("load", () => {
     try {
       currentState = normalizeState(JSON.parse(String(reader.result || "{}")));
+      usingSharedUrl = false;
       currentSource = {
         label: "読込JSON",
         detail: file.name,
@@ -156,6 +277,7 @@ function render(state, source) {
     latestValue: currentScope === "today" ? dayLabel : formatDate(latestMatch ? latestMatch.finishedAt : state.createdAt),
   });
   elements.standingsTable.innerHTML = rows.length ? renderStandings(rows, medians) : renderEmpty(currentScope === "today" ? "当日の半荘がありません" : "保存済み半荘がありません");
+  elements.standingsTable.scrollLeft = 0;
   elements.trendChart.innerHTML = scopedMatches.length ? renderScoreTrend(scopedMatches) : "";
   elements.matchList.innerHTML = scopedMatches.length ? renderMatches(scopedMatches) : renderEmpty("半荘保存後にここへ反映されます");
 }

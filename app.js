@@ -61,6 +61,7 @@ const elements = {
   resetButton: document.querySelector("#resetButton"),
   finishMatchButton: document.querySelector("#finishMatchButton"),
   csvButton: document.querySelector("#csvButton"),
+  shareLinkButton: document.querySelector("#shareLinkButton"),
   exportButton: document.querySelector("#exportButton"),
   importButton: document.querySelector("#importButton"),
   importFile: document.querySelector("#importFile"),
@@ -224,6 +225,9 @@ function bindEvents() {
   elements.resetButton.addEventListener("click", resetMatch);
   elements.finishMatchButton.addEventListener("click", finishMatchManually);
   elements.csvButton.addEventListener("click", exportSheetCsv);
+  if (elements.shareLinkButton) {
+    elements.shareLinkButton.addEventListener("click", shareSnapshotLink);
+  }
   elements.exportButton.addEventListener("click", exportMatch);
   elements.importButton.addEventListener("click", () => elements.importFile.click());
   elements.importFile.addEventListener("change", importStateFile);
@@ -1336,6 +1340,118 @@ function exportSheetCsv() {
 
   const stamp = new Date().toISOString().slice(0, 10);
   downloadTextFile(buildSheetCsv(matches), `mahjong-ledger-sheet-${stamp}.csv`, "text/csv");
+}
+
+async function shareSnapshotLink() {
+  const matches = Array.isArray(state.matches) ? state.matches : [];
+  if (matches.length === 0) {
+    window.alert("共有する保存済み半荘がありません。半荘を保存してから共有リンクを作成してください。");
+    return;
+  }
+
+  const url = buildShareUrl();
+  const title = "Mahjong Ledger 共有成績";
+
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, url });
+      return;
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(url);
+      window.alert("共有リンクをコピーしました。スマホに送って開くと成績を見られます。");
+      return;
+    }
+  } catch (error) {
+    if (error && error.name === "AbortError") {
+      return;
+    }
+  }
+
+  window.prompt("共有リンクをコピーしてください。", url);
+}
+
+function buildShareUrl() {
+  const url = new URL("./share.html?v=14", window.location.href);
+  url.hash = `data=${encodeSharePayload(createShareSnapshot())}`;
+  return url.toString();
+}
+
+function createShareSnapshot() {
+  return {
+    v: 1,
+    c: state.createdAt || "",
+    s: pickShareSettings(state.settings || {}),
+    p: state.players.map((player) => [player.id, Number(player.seat || 0), player.name || ""]),
+    m: getSortedMatches(state.matches || []).map(compactShareMatch),
+  };
+}
+
+function compactShareMatch(match) {
+  const ranks = getRanksForPlayers(match.players || []);
+
+  return {
+    n: match.number,
+    l: match.label || "",
+    st: match.startedAt || "",
+    f: match.finishedAt || "",
+    e: match.endReason || "",
+    b: Array.isArray(match.bustedIds) ? match.bustedIds : [],
+    ti: Array.isArray(match.tobashiIds) ? match.tobashiIds : [],
+    ts: match.tobashiShares || {},
+    s: pickShareSettings(match.settings || state.settings || {}),
+    p: (match.players || []).map((player) => {
+      const rankedPlayer = { ...player, rank: Number(player.rank || ranks.get(player.id) || 4) };
+      return [
+        rankedPlayer.id,
+        Number(rankedPlayer.seat || 0),
+        rankedPlayer.name || "",
+        Number(rankedPlayer.score || 0),
+        Number(rankedPlayer.rank || 4),
+        getPlayerScoreDiff(rankedPlayer),
+        getPlayerRoundedScore(rankedPlayer),
+        getPlayerUma(rankedPlayer, match),
+        getPlayerTobashiBonus(rankedPlayer, match),
+        getPlayerLeagueScore(rankedPlayer, match),
+        getPlayerChipDiff(rankedPlayer),
+        Number(rankedPlayer.chips ?? STARTING_CHIPS),
+        Number(rankedPlayer.hands || 0),
+        Number(rankedPlayer.calls || 0),
+        Number(rankedPlayer.riichi || 0),
+        Number(rankedPlayer.wins || 0),
+        Number(rankedPlayer.dealIns || 0),
+      ];
+    }),
+  };
+}
+
+function pickShareSettings(settings) {
+  return [
+    "drawTobashiMode",
+    "tobashiBonusEnabled",
+    "umaRank1",
+    "umaRank2",
+    "umaRank3",
+    "umaRank4",
+  ].reduce((picked, key) => {
+    if (settings[key] !== undefined) {
+      picked[key] = settings[key];
+    }
+    return picked;
+  }, {});
+}
+
+function encodeSharePayload(payload) {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function importStateFile(event) {
