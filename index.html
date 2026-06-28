@@ -7,7 +7,7 @@
     <title>Mahjong Ledger</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=15" />
+    <link rel="stylesheet" href="./styles.css?v=16" />
   </head>
   <body>
     <div class="app-shell">
@@ -110,14 +110,6 @@
               <button type="button" data-action="set-score-mode" data-score-mode="adjust">微調整</button>
               <button type="button" data-action="set-score-mode" data-score-mode="preset">定番</button>
             </div>
-            <div class="score-sign-tabs" role="group" aria-label="加減算">
-              <button type="button" data-action="set-score-sign" data-score-sign="-1">−</button>
-              <button type="button" data-action="set-score-sign" data-score-sign="1">＋</button>
-            </div>
-          </div>
-          <div class="tsumo-shortcuts" role="group" aria-label="ツモ点数自動入力">
-            <button type="button" data-action="apply-tsumo-template" data-template="mangan">満ツモ</button>
-            <button type="button" data-action="apply-tsumo-template" data-template="haneman">跳ツモ</button>
           </div>
           <div class="delta-grid" id="deltaGrid" aria-label="点数差"></div>
           <div class="chip-grid" id="chipGrid" aria-label="チップ差"></div>
@@ -179,6 +171,6 @@
       </main>
     </div>
 
-    <script src="./app.js?v=15" defer></script>
+    <script src="./app.js?v=16" defer></script>
   </body>
 </html>

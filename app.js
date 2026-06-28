@@ -6,7 +6,10 @@ const ROUNDS = ["東1局", "東2局", "東3局", "東4局", "南1局", "南2局"
 const HONBA_RON_POINTS = 300;
 const HONBA_TSUMO_POINTS = 100;
 const RIICHI_STICK_POINTS = 1000;
-const SCORE_PRESETS = [2000, 2600, 3900, 5800, 8000, 12000];
+const ADJUST_SCORE_VALUES = [1000, 500, 100];
+const CHILD_SCORE_PRESETS = [300, 400, 500, 600, 700, 800, 1000, 1300, 1600, 1800, 2000, 2600, 3200, 3900, 5200, 6400, 8000, 12000, 16000, 24000, 32000];
+const DEALER_SCORE_PRESETS = [500, 700, 800, 1000, 1200, 1300, 1600, 2000, 2600, 3900, 4000, 4800, 5800, 7700, 9600, 12000, 18000, 24000, 36000, 48000];
+const DEFAULT_PRESET_SCORE = 2000;
 const TSUMO_TEMPLATES = {
   mangan: { label: "満ツモ", dealerWin: 4000, childDealer: 4000, childOther: 2000 },
   haneman: { label: "跳ツモ", dealerWin: 6000, childDealer: 6000, childOther: 3000 },
@@ -81,7 +84,6 @@ const elements = {
 let state = loadState();
 let draft = createDraft(state);
 let scoreInputMode = "adjust";
-let scoreInputSign = 1;
 let archiveScope = "overall";
 
 applyTheme(localStorage.getItem(THEME_KEY) || "light");
@@ -149,6 +151,8 @@ function createDraft(sourceState) {
     actions: createActionMap(sourceState.players),
     deltas: createDeltaMap(sourceState.players),
     chipDeltas: createDeltaMap(sourceState.players),
+    scoreSigns: createSignMap(sourceState.players),
+    presetValues: createPresetValueMap(sourceState.players),
     memo: "",
     advanceRound: true,
   };
@@ -286,12 +290,14 @@ function handleClick(event) {
   }
 
   if (action === "set-score-sign") {
-    scoreInputSign = Number(target.dataset.scoreSign || 1) < 0 ? -1 : 1;
+    if (playerId) {
+      draft.scoreSigns[playerId] = Number(target.dataset.scoreSign || 1) < 0 ? -1 : 1;
+    }
     render();
   }
 
   if (action === "apply-tsumo-template") {
-    applyTsumoTemplate(target.dataset.template);
+    applyTsumoTemplate(target.dataset.template, playerId);
     return;
   }
 
@@ -305,7 +311,14 @@ function handleClick(event) {
   }
 
   if (action === "delta-step") {
-    draft.deltas[playerId] = normalizeScore((draft.deltas[playerId] || 0) + value * scoreInputSign);
+    draft.deltas[playerId] = normalizeScore((draft.deltas[playerId] || 0) + value * getDraftScoreSign(playerId));
+    syncWinningPlayersFromDeltas();
+    render();
+  }
+
+  if (action === "delta-preset-apply") {
+    const presetValue = getPresetValueByPlayerId(playerId);
+    draft.deltas[playerId] = normalizeScore((draft.deltas[playerId] || 0) + presetValue * getDraftScoreSign(playerId));
     syncWinningPlayersFromDeltas();
     render();
   }
@@ -378,6 +391,11 @@ function handleChange(event) {
     draft.advanceRound = target.checked;
   }
 
+  if (target.matches("[data-preset-slider]")) {
+    updatePresetValueFromSlider(target.dataset.presetSlider, target.value);
+    render();
+  }
+
   if (target.matches("[data-setting]")) {
     const key = target.dataset.setting;
     const setting = SETTINGS.find((item) => item.key === key);
@@ -396,6 +414,11 @@ function handleChange(event) {
 function handleInput(event) {
   if (event.target === elements.memoInput) {
     draft.memo = event.target.value;
+  }
+
+  if (event.target.matches("[data-preset-slider]")) {
+    updatePresetValueFromSlider(event.target.dataset.presetSlider, event.target.value);
+    render();
   }
 }
 
@@ -496,9 +519,6 @@ function renderScoreTabs() {
   document.querySelectorAll("[data-action='set-score-mode']").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.scoreMode === scoreInputMode));
   });
-  document.querySelectorAll("[data-action='set-score-sign']").forEach((button) => {
-    button.setAttribute("aria-pressed", String(Number(button.dataset.scoreSign || 1) === scoreInputSign));
-  });
 }
 
 function renderActions() {
@@ -569,8 +589,46 @@ function renderDeltas() {
 }
 
 function renderDeltaButtons(playerId) {
-  const values = scoreInputMode === "preset" ? SCORE_PRESETS : [1000, 500, 100];
-  const valueButtons = values.map((value) => deltaButtonTemplate(playerId, value)).join("");
+  const player = state.players.find((item) => item.id === playerId);
+  const sign = getDraftScoreSign(playerId);
+  const valueControl = scoreInputMode === "preset" && player
+    ? renderPresetSlider(player)
+    : renderAdjustButtons(playerId);
+  const tsumoButtons = `
+    <div class="row-tsumo-shortcuts">
+      <button type="button" data-action="apply-tsumo-template" data-template="mangan" data-player-id="${playerId}">満ツモ</button>
+      <button type="button" data-action="apply-tsumo-template" data-template="haneman" data-player-id="${playerId}">跳ツモ</button>
+    </div>
+  `;
+
+  return `
+    <div class="delta-controls">
+      <div class="delta-toolbar">
+        <div class="player-sign-tabs" role="group" aria-label="加減算">
+          <button
+            type="button"
+            data-action="set-score-sign"
+            data-player-id="${playerId}"
+            data-score-sign="-1"
+            aria-pressed="${sign < 0}"
+          >−</button>
+          <button
+            type="button"
+            data-action="set-score-sign"
+            data-player-id="${playerId}"
+            data-score-sign="1"
+            aria-pressed="${sign > 0}"
+          >＋</button>
+        </div>
+        ${tsumoButtons}
+      </div>
+      ${valueControl}
+    </div>
+  `;
+}
+
+function renderAdjustButtons(playerId) {
+  const valueButtons = ADJUST_SCORE_VALUES.map((value) => deltaButtonTemplate(playerId, value)).join("");
   const clearButton = `
     <button
       class="delta-button clear"
@@ -580,11 +638,39 @@ function renderDeltaButtons(playerId) {
     >0</button>
   `;
 
-  return `<div class="delta-buttons ${scoreInputMode} ${scoreInputSign < 0 ? "negative-mode" : "positive-mode"}">${valueButtons}${clearButton}</div>`;
+  return `<div class="delta-buttons adjust">${valueButtons}${clearButton}</div>`;
+}
+
+function renderPresetSlider(player) {
+  const playerId = player.id;
+  const list = getScorePresetList(player);
+  const index = getPresetIndexForPlayer(player);
+  const value = list[index] || list[0] || DEFAULT_PRESET_SCORE;
+  const tone = getDraftScoreSign(playerId) < 0 ? "negative" : "positive";
+
+  return `
+    <div class="preset-slider">
+      <button
+        class="delta-button preset-apply ${tone}"
+        type="button"
+        data-action="delta-preset-apply"
+        data-player-id="${playerId}"
+      >${formatNumber(value)}</button>
+      <input
+        type="range"
+        min="0"
+        max="${Math.max(0, list.length - 1)}"
+        step="1"
+        value="${index}"
+        data-preset-slider="${playerId}"
+        aria-label="${escapeHtml(player.name)}の定番点"
+      />
+    </div>
+  `;
 }
 
 function deltaButtonTemplate(playerId, value) {
-  const tone = scoreInputSign < 0 ? "negative" : "positive";
+  const tone = getDraftScoreSign(playerId) < 0 ? "negative" : "positive";
   return `
     <button
       class="delta-button ${tone}"
@@ -596,13 +682,13 @@ function deltaButtonTemplate(playerId, value) {
   `;
 }
 
-function applyTsumoTemplate(templateKey) {
+function applyTsumoTemplate(templateKey, playerId = "") {
   const template = TSUMO_TEMPLATES[templateKey];
   if (!template) {
     return;
   }
 
-  const winnerId = draft.winnerId || (state.players[0] ? state.players[0].id : "");
+  const winnerId = playerId || draft.winnerId || (state.players[0] ? state.players[0].id : "");
   if (!winnerId) {
     window.alert("ツモ者を選んでください。");
     return;
@@ -1378,7 +1464,6 @@ function deleteAllData() {
   draft = createDraft(state);
   archiveScope = "overall";
   scoreInputMode = "adjust";
-  scoreInputSign = 1;
   saveState();
   render();
 }
@@ -1587,7 +1672,7 @@ async function shareSnapshotLink() {
 }
 
 function buildShareUrl() {
-  const url = new URL("./share.html?v=15", window.location.href);
+  const url = new URL("./share.html?v=16", window.location.href);
   url.hash = `data=${encodeSharePayload(createShareSnapshot())}`;
   return url.toString();
 }
@@ -2289,6 +2374,85 @@ function createDeltaMap(players) {
     map[player.id] = 0;
     return map;
   }, {});
+}
+
+function createSignMap(players) {
+  return players.reduce((map, player) => {
+    map[player.id] = 1;
+    return map;
+  }, {});
+}
+
+function createPresetValueMap(players) {
+  return players.reduce((map, player) => {
+    map[player.id] = DEFAULT_PRESET_SCORE;
+    return map;
+  }, {});
+}
+
+function getDraftScoreSign(playerId) {
+  if (!draft.scoreSigns) {
+    draft.scoreSigns = createSignMap(state.players);
+  }
+
+  return Number(draft.scoreSigns[playerId] || 1) < 0 ? -1 : 1;
+}
+
+function getScorePresetList(player) {
+  const wind = getPlayerWindMeta(player);
+  return wind.isDealer ? DEALER_SCORE_PRESETS : CHILD_SCORE_PRESETS;
+}
+
+function getPresetIndexForPlayer(player) {
+  const list = getScorePresetList(player);
+  const value = getPresetValueByPlayerId(player.id);
+  return getNearestPresetIndex(list, value);
+}
+
+function getPresetValueByPlayerId(playerId) {
+  if (!draft.presetValues) {
+    draft.presetValues = createPresetValueMap(state.players);
+  }
+
+  const player = state.players.find((item) => item.id === playerId);
+  if (!player) {
+    return DEFAULT_PRESET_SCORE;
+  }
+
+  const list = getScorePresetList(player);
+  const value = Number(draft.presetValues[playerId] || DEFAULT_PRESET_SCORE);
+  return list[getNearestPresetIndex(list, value)] || list[0] || DEFAULT_PRESET_SCORE;
+}
+
+function updatePresetValueFromSlider(playerId, rawIndex) {
+  const player = state.players.find((item) => item.id === playerId);
+  if (!player) {
+    return;
+  }
+
+  if (!draft.presetValues) {
+    draft.presetValues = createPresetValueMap(state.players);
+  }
+
+  const list = getScorePresetList(player);
+  const index = Math.round(clamp(Number(rawIndex || 0), 0, Math.max(0, list.length - 1)));
+  draft.presetValues[playerId] = list[index] || DEFAULT_PRESET_SCORE;
+}
+
+function getNearestPresetIndex(list, value) {
+  const target = Number(value || DEFAULT_PRESET_SCORE);
+  let nearestIndex = 0;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  list.forEach((item, index) => {
+    const distance = Math.abs(Number(item) - target);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+
+  return nearestIndex;
 }
 
 function deepClone(value) {

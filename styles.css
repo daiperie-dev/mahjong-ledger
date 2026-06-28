@@ -475,65 +475,26 @@ body[data-theme="dark"] .wind-chip.dealer {
 }
 
 .score-control-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 116px;
-  gap: 8px;
   margin-bottom: 8px;
 }
 
-.score-input-tabs,
-.score-sign-tabs {
-  display: grid;
-  gap: 8px;
-}
-
 .score-input-tabs {
-  grid-template-columns: repeat(2, 1fr);
-}
-
-.score-sign-tabs {
-  grid-template-columns: repeat(2, 1fr);
-}
-
-.tsumo-shortcuts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-bottom: 10px;
+  grid-template-columns: repeat(2, 1fr);
 }
 
 .mode-tabs button,
-.score-input-tabs button,
-.score-sign-tabs button,
-.tsumo-shortcuts button {
+.score-input-tabs button {
   font-weight: 900;
 }
 
 .mode-tabs button[aria-pressed="true"],
 .score-input-tabs button[aria-pressed="true"],
-.score-sign-tabs button[aria-pressed="true"],
 .toggle-button[aria-pressed="true"] {
   border-color: var(--accent-strong);
   background: var(--accent-soft);
   color: var(--accent-strong);
-}
-
-.score-sign-tabs button[data-score-sign="-1"][aria-pressed="true"] {
-  border-color: var(--danger);
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.tsumo-shortcuts button {
-  min-height: 38px;
-  border-color: #d5bc88;
-  background: #fff2d8;
-  color: #7a4f05;
-}
-
-body[data-theme="dark"] .tsumo-shortcuts button {
-  background: #443216;
-  color: var(--gold);
 }
 
 .selector-grid {
@@ -597,7 +558,7 @@ input {
 
 .delta-row {
   display: grid;
-  grid-template-columns: minmax(78px, 0.85fr) minmax(92px, 1fr) 176px;
+  grid-template-columns: minmax(78px, 0.85fr) minmax(92px, 1fr);
   gap: 8px;
   align-items: center;
 }
@@ -644,6 +605,63 @@ body[data-theme="dark"] .mini-wind.dealer {
   font-weight: 900;
 }
 
+.delta-controls {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+}
+
+.delta-toolbar {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.player-sign-tabs,
+.row-tsumo-shortcuts {
+  display: grid;
+  gap: 6px;
+}
+
+.player-sign-tabs {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.row-tsumo-shortcuts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.player-sign-tabs button,
+.row-tsumo-shortcuts button {
+  min-height: 34px;
+  padding: 0;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.player-sign-tabs button[aria-pressed="true"] {
+  border-color: var(--accent-strong);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.player-sign-tabs button[data-score-sign="-1"][aria-pressed="true"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.row-tsumo-shortcuts button {
+  border-color: #d5bc88;
+  background: #fff2d8;
+  color: #7a4f05;
+}
+
+body[data-theme="dark"] .row-tsumo-shortcuts button {
+  background: #443216;
+  color: var(--gold);
+}
+
 .delta-buttons {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -657,12 +675,24 @@ body[data-theme="dark"] .mini-wind.dealer {
   font-weight: 900;
 }
 
-.delta-buttons.preset button {
-  font-size: 0.72rem;
+.preset-slider {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
 }
 
-.delta-buttons.preset {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.preset-slider input[type="range"] {
+  min-height: 34px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.preset-apply {
+  min-height: 34px;
+  padding: 0 6px;
+  font-size: 0.78rem;
+  font-weight: 900;
 }
 
 .delta-button.positive {
