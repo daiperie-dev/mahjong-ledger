@@ -1575,7 +1575,7 @@ async function shareSnapshotLink() {
     return;
   }
 
-  const url = buildShareUrl();
+  const url = await buildShareUrl();
   const title = "Mahjong Ledger 共有成績";
 
   try {
@@ -1598,9 +1598,11 @@ async function shareSnapshotLink() {
   window.prompt("共有リンクをコピーしてください。", url);
 }
 
-function buildShareUrl() {
-  const url = new URL("./share.html?v=19", window.location.href);
-  url.hash = `data=${encodeSharePayload(createShareSnapshot())}`;
+async function buildShareUrl() {
+  const url = new URL("./share.html?v=20", window.location.href);
+  const snapshot = createShareSnapshot();
+  const compressed = await encodeCompressedSharePayload(snapshot);
+  url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return url.toString();
 }
 
@@ -1669,7 +1671,41 @@ function pickShareSettings(settings) {
 }
 
 function encodeSharePayload(payload) {
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  const bytes = encodeUtf8Bytes(JSON.stringify(payload));
+  return encodeBytesAsBase64Url(bytes);
+}
+
+async function encodeCompressedSharePayload(payload) {
+  if (typeof window.CompressionStream !== "function") {
+    return "";
+  }
+
+  try {
+    const bytes = encodeUtf8Bytes(JSON.stringify(payload));
+    const stream = new Blob([bytes]).stream().pipeThrough(new window.CompressionStream("gzip"));
+    const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+    return encodeBytesAsBase64Url(compressed);
+  } catch {
+    return "";
+  }
+}
+
+function encodeUtf8Bytes(text) {
+  if (typeof window.TextEncoder === "function") {
+    return new window.TextEncoder().encode(text);
+  }
+
+  const binary = unescape(encodeURIComponent(text));
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+function encodeBytesAsBase64Url(bytes) {
   let binary = "";
   const chunkSize = 0x8000;
 

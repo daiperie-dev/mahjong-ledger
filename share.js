@@ -19,22 +19,13 @@ const elements = {
   scopeButtons: document.querySelectorAll("[data-scope]"),
 };
 
-const initialSharedState = loadSharedStateFromUrl();
-let usingSharedUrl = Boolean(initialSharedState);
-let currentState = initialSharedState || loadLocalState();
-let currentSource = {
-  label: "ローカル保存",
-  detail: currentState.matches.length ? "この端末の保存済み半荘を表示しています" : "保存済み半荘はまだありません",
-};
+let usingSharedUrl = false;
+let currentState = loadLocalState();
+let currentSource = getLocalSource(currentState);
 let currentScope = "overall";
 
-if (usingSharedUrl) {
-  currentSource = getSharedUrlSource();
-} else if (!currentState.matches.length) {
-  currentSource.detail = "この端末に保存済み半荘はありません。本体の共有リンクから開くと外部端末でも表示できます。";
-}
-
 render(currentState, currentSource);
+loadInitialSharedState();
 
 elements.importButton.addEventListener("click", () => {
   elements.importFile.click();
@@ -66,8 +57,8 @@ window.addEventListener("storage", (event) => {
   render(currentState, currentSource);
 });
 
-window.addEventListener("hashchange", () => {
-  const nextSharedState = loadSharedStateFromUrl();
+window.addEventListener("hashchange", async () => {
+  const nextSharedState = await loadSharedStateFromUrl();
   if (!nextSharedState) {
     return;
   }
@@ -77,6 +68,27 @@ window.addEventListener("hashchange", () => {
   currentSource = getSharedUrlSource();
   render(currentState, currentSource);
 });
+
+function getLocalSource(state) {
+  return {
+    label: "ローカル保存",
+    detail: state.matches.length
+      ? "この端末の保存済み半荘を表示しています"
+      : "この端末に保存済み半荘はありません。本体の共有リンクから開くと外部端末でも表示できます。",
+  };
+}
+
+async function loadInitialSharedState() {
+  const initialSharedState = await loadSharedStateFromUrl();
+  if (!initialSharedState) {
+    return;
+  }
+
+  usingSharedUrl = true;
+  currentState = initialSharedState;
+  currentSource = getSharedUrlSource();
+  render(currentState, currentSource);
+}
 
 function getSharedUrlSource() {
   return {
@@ -94,23 +106,41 @@ function loadLocalState() {
   }
 }
 
-function loadSharedStateFromUrl() {
+async function loadSharedStateFromUrl() {
   const hash = window.location.hash || "";
   const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+  const compressed = params.get("z");
   const encoded = params.get("data");
 
-  if (!encoded) {
+  if (!compressed && !encoded) {
     return null;
   }
 
   try {
-    return normalizeSharedPayload(decodeSharePayload(encoded));
+    const payload = compressed ? await decodeCompressedSharePayload(compressed) : decodeSharePayload(encoded);
+    return normalizeSharedPayload(payload);
   } catch {
     return null;
   }
 }
 
+async function decodeCompressedSharePayload(encoded) {
+  if (typeof window.DecompressionStream !== "function") {
+    throw new Error("DecompressionStream is not supported");
+  }
+
+  const bytes = decodeBase64UrlToBytes(encoded);
+  const stream = new Blob([bytes]).stream().pipeThrough(new window.DecompressionStream("gzip"));
+  const text = await new Response(stream).text();
+  return JSON.parse(text);
+}
+
 function decodeSharePayload(encoded) {
+  const bytes = decodeBase64UrlToBytes(encoded);
+  return JSON.parse(decodeUtf8Bytes(bytes));
+}
+
+function decodeBase64UrlToBytes(encoded) {
   const base64 = encoded
     .replace(/-/g, "+")
     .replace(/_/g, "/")
@@ -122,7 +152,22 @@ function decodeSharePayload(encoded) {
     bytes[index] = binary.charCodeAt(index);
   }
 
-  return JSON.parse(new TextDecoder().decode(bytes));
+  return bytes;
+}
+
+function decodeUtf8Bytes(bytes) {
+  if (typeof window.TextDecoder === "function") {
+    return new window.TextDecoder().decode(bytes);
+  }
+
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return decodeURIComponent(escape(binary));
 }
 
 function normalizeSharedPayload(payload) {
