@@ -1,13 +1,15 @@
 const STORAGE_KEY = "mahjong-ledger-state-v1";
 const THEME_KEY = "mahjong-ledger-theme-v1";
 const STARTING_SCORE = 25000;
+const STARTING_CHIPS = 20;
 const ROUNDS = ["東1局", "東2局", "東3局", "東4局", "南1局", "南2局", "南3局", "南4局"];
 const HONBA_RON_POINTS = 300;
 const HONBA_TSUMO_POINTS = 100;
 const RIICHI_STICK_POINTS = 1000;
 const SCORE_PRESETS = [2000, 2600, 3900, 5800, 8000, 12000];
 const WIND_LABELS = ["東", "南", "西", "北"];
-const DEFAULT_UMA = [20, 10, -10, -20];
+const DEFAULT_UMA = [30, 10, -10, -30];
+const TOBASHI_BONUS = 10;
 const SETTINGS = [
   { key: "autoRoundRules", label: "局進行・本場", type: "checkbox" },
   { key: "autoHonbaPayments", label: "本場点補正", type: "checkbox" },
@@ -27,6 +29,7 @@ const SETTINGS = [
       { value: "split", label: "分け合い" },
     ],
   },
+  { key: "tobashiBonusEnabled", label: "トバし賞+10", type: "checkbox" },
   { key: "umaRank1", label: "ウマ1位", type: "number", step: 1, normalize: "integer" },
   { key: "umaRank2", label: "ウマ2位", type: "number", step: 1, normalize: "integer" },
   { key: "umaRank3", label: "ウマ3位", type: "number", step: 1, normalize: "integer" },
@@ -42,6 +45,7 @@ const elements = {
   playersGrid: document.querySelector("#playersGrid"),
   actionGrid: document.querySelector("#actionGrid"),
   deltaGrid: document.querySelector("#deltaGrid"),
+  chipGrid: document.querySelector("#chipGrid"),
   historyList: document.querySelector("#historyList"),
   roundLabel: document.querySelector("#roundLabel"),
   roundSubLabel: document.querySelector("#roundSubLabel"),
@@ -62,6 +66,7 @@ const elements = {
   importFile: document.querySelector("#importFile"),
   themeToggle: document.querySelector("#themeToggle"),
   summaryStats: document.querySelector("#summaryStats"),
+  trendChart: document.querySelector("#trendChart"),
   matchList: document.querySelector("#matchList"),
   settingsGrid: document.querySelector("#settingsGrid"),
   archiveScopeButtons: document.querySelectorAll("[data-archive-scope]"),
@@ -88,6 +93,7 @@ function createInitialState() {
       seat: index,
       name,
       score: STARTING_SCORE,
+      chips: STARTING_CHIPS,
       hands: 0,
       calls: 0,
       riichi: 0,
@@ -112,6 +118,7 @@ function createDefaultSettings() {
     tobiEnabled: true,
     tobiThreshold: 0,
     drawTobashiMode: "kamicha",
+    tobashiBonusEnabled: true,
     umaRank1: DEFAULT_UMA[0],
     umaRank2: DEFAULT_UMA[1],
     umaRank3: DEFAULT_UMA[2],
@@ -134,6 +141,7 @@ function createDraft(sourceState) {
     loserId: second,
     actions: createActionMap(sourceState.players),
     deltas: createDeltaMap(sourceState.players),
+    chipDeltas: createDeltaMap(sourceState.players),
     memo: "",
     advanceRound: true,
   };
@@ -172,15 +180,35 @@ function normalizeStatePayload(parsed) {
       wins: 0,
       dealIns: 0,
       hands: 0,
+      chips: STARTING_CHIPS,
       ...player,
     })),
     history: Array.isArray(parsed.history) ? parsed.history : [],
     matches: Array.isArray(parsed.matches) ? parsed.matches : [],
-    settings: {
-      ...createDefaultSettings(),
-      ...(parsed.settings || {}),
-    },
+    settings: normalizeSettingsPayload(parsed.settings || {}),
   };
+}
+
+function normalizeSettingsPayload(settings) {
+  const normalized = {
+    ...createDefaultSettings(),
+    ...settings,
+  };
+
+  const keptPreviousDefaultUma =
+    Number(settings.umaRank1) === 20 &&
+    Number(settings.umaRank2) === 10 &&
+    Number(settings.umaRank3) === -10 &&
+    Number(settings.umaRank4) === -20;
+
+  if (keptPreviousDefaultUma) {
+    normalized.umaRank1 = DEFAULT_UMA[0];
+    normalized.umaRank2 = DEFAULT_UMA[1];
+    normalized.umaRank3 = DEFAULT_UMA[2];
+    normalized.umaRank4 = DEFAULT_UMA[3];
+  }
+
+  return normalized;
 }
 
 function saveState() {
@@ -261,6 +289,22 @@ function handleClick(event) {
     syncWinningPlayersFromDeltas();
     render();
   }
+
+  if (action === "delta-clear") {
+    draft.deltas[playerId] = 0;
+    syncWinningPlayersFromDeltas();
+    render();
+  }
+
+  if (action === "chip-step") {
+    draft.chipDeltas[playerId] = normalizeChip((draft.chipDeltas[playerId] || 0) + value);
+    render();
+  }
+
+  if (action === "chip-clear") {
+    draft.chipDeltas[playerId] = 0;
+    render();
+  }
 }
 
 function handleChange(event) {
@@ -286,6 +330,11 @@ function handleChange(event) {
   if (target.matches("[data-delta-input]")) {
     draft.deltas[target.dataset.deltaInput] = normalizeScore(Number(target.value || 0));
     syncWinningPlayersFromDeltas();
+    render();
+  }
+
+  if (target.matches("[data-chip-input]")) {
+    draft.chipDeltas[target.dataset.chipInput] = normalizeChip(Number(target.value || 0));
     render();
   }
 
@@ -330,6 +379,7 @@ function render() {
   renderScoreTabs();
   renderActions();
   renderDeltas();
+  renderChipDeltas();
   renderHistory();
   renderSummary();
   renderSettings();
@@ -342,6 +392,8 @@ function renderPlayers() {
     .map((player) => {
       const diff = player.score - STARTING_SCORE;
       const diffClass = diff > 0 ? "plus" : diff < 0 ? "minus" : "";
+      const chipDiff = Number(player.chips ?? STARTING_CHIPS) - STARTING_CHIPS;
+      const chipClass = chipDiff > 0 ? "plus" : chipDiff < 0 ? "minus" : "";
       const wind = getPlayerWindMeta(player);
 
       return `
@@ -362,6 +414,11 @@ function renderPlayers() {
             <div class="score-line">
               <strong>${formatNumber(player.score)}</strong>
               <span class="${diffClass}">${formatSigned(diff)}</span>
+            </div>
+            <div class="chip-line">
+              <span>チップ</span>
+              <strong>${formatNumber(player.chips ?? STARTING_CHIPS)}枚</strong>
+              <em class="${chipClass}">${formatSigned(chipDiff)}</em>
             </div>
             <div class="stat-grid">
               ${statTemplate("副露率", player.calls, player.hands)}
@@ -476,8 +533,16 @@ function renderDeltaButtons(playerId) {
   const values = scoreInputMode === "preset" ? SCORE_PRESETS : [1000, 500, 100];
   const negativeButtons = values.map((value) => deltaButtonTemplate(playerId, -value)).join("");
   const positiveButtons = values.map((value) => deltaButtonTemplate(playerId, value)).join("");
+  const clearButton = `
+    <button
+      class="delta-button clear"
+      type="button"
+      data-action="delta-clear"
+      data-player-id="${playerId}"
+    >0</button>
+  `;
 
-  return `<div class="delta-buttons ${scoreInputMode}">${negativeButtons}${positiveButtons}</div>`;
+  return `<div class="delta-buttons ${scoreInputMode}">${negativeButtons}${positiveButtons}${clearButton}</div>`;
 }
 
 function deltaButtonTemplate(playerId, value) {
@@ -488,6 +553,56 @@ function deltaButtonTemplate(playerId, value) {
       class="delta-button ${tone}"
       type="button"
       data-action="delta-step"
+      data-player-id="${playerId}"
+      data-value="${value}"
+    >${label}</button>
+  `;
+}
+
+function renderChipDeltas() {
+  elements.chipGrid.innerHTML = state.players
+    .map((player) => {
+      const value = draft.chipDeltas[player.id] || 0;
+      const currentChips = Number(player.chips ?? STARTING_CHIPS);
+      const wind = getPlayerWindMeta(player);
+
+      return `
+        <div class="chip-row">
+          <span class="chip-name">
+            <span class="mini-wind ${wind.isDealer ? "dealer" : ""}">${wind.shortLabel}</span>
+            ${escapeHtml(player.name)}
+          </span>
+          <span class="chip-current">所持 ${formatNumber(currentChips)}枚</span>
+          <input
+            class="chip-input"
+            type="number"
+            inputmode="numeric"
+            step="1"
+            data-chip-input="${player.id}"
+            value="${value}"
+            aria-label="${escapeHtml(player.name)}のチップ差"
+          />
+          <div class="chip-buttons">
+            ${chipButtonTemplate(player.id, -5)}
+            ${chipButtonTemplate(player.id, -1)}
+            ${chipButtonTemplate(player.id, 1)}
+            ${chipButtonTemplate(player.id, 5)}
+            <button class="chip-button clear" type="button" data-action="chip-clear" data-player-id="${player.id}">0</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function chipButtonTemplate(playerId, value) {
+  const tone = value < 0 ? "negative" : "positive";
+  const label = `${value < 0 ? "−" : "＋"}${Math.abs(value)}`;
+  return `
+    <button
+      class="chip-button ${tone}"
+      type="button"
+      data-action="chip-step"
       data-player-id="${playerId}"
       data-value="${value}"
     >${label}</button>
@@ -524,12 +639,22 @@ function renderHistory() {
           return `<span>${escapeHtml(player.name)} ${formatSigned(diff)}</span>`;
         })
         .join("");
+      const chipDeltas = hand.playersAfter
+        .map((player) => {
+          const before = hand.playersBefore.find((item) => item.id === player.id);
+          const beforeChips = before ? Number(before.chips ?? STARTING_CHIPS) : Number(player.chips ?? STARTING_CHIPS);
+          const diff = Number(player.chips ?? STARTING_CHIPS) - beforeChips;
+          return diff ? `<span>${escapeHtml(player.name)} チップ${formatSigned(diff)}</span>` : "";
+        })
+        .filter(Boolean)
+        .join("");
 
       return `
         <article class="history-item">
           <strong>${escapeHtml(headline)}</strong>
           <small>${actionNames}${memo}${autoNotes}</small>
           <div class="history-deltas">${deltas}</div>
+          ${chipDeltas ? `<div class="history-deltas chips">${chipDeltas}</div>` : ""}
         </article>
       `;
     })
@@ -545,11 +670,13 @@ function renderSummary() {
 
   if (matches.length === 0) {
     elements.summaryStats.innerHTML = `<div class="history-empty">保存済み半荘はまだありません</div>`;
+    elements.trendChart.innerHTML = "";
     elements.matchList.innerHTML = "";
     return;
   }
 
   const rows = getAggregateRows(scopedMatches);
+  const medians = getRateMedians(rows);
   const latestMatch = scopedMatches[0] || matches[0] || null;
   const dayLabel = archiveScope === "today" && latestMatch ? formatDateOnly(latestMatch.finishedAt) : "";
   elements.summaryStats.innerHTML = `
@@ -560,22 +687,30 @@ function renderSummary() {
     <div class="summary-table">
       ${rows
         .map(
-          (row) => `
+          (row) => {
+            const scoreClass = toneClass(row.totalLeagueScore);
+            const chipClass = toneClass(row.totalChipDiff);
+            return `
             <div class="summary-row">
               <strong>${escapeHtml(row.name)}</strong>
               <span>${row.games}半荘</span>
+              <span class="${scoreClass}">スコア${formatSigned(row.totalLeagueScore)}</span>
+              <span class="${chipClass}">チップ${formatSigned(row.totalChipDiff)}</span>
               <span>平均${row.averageRank.toFixed(2)}位</span>
-              <span>トップ${row.topRate.toFixed(1)}%</span>
-              <span>トビ${row.tobiRate.toFixed(1)}%</span>
-              <span>トバし${row.tobashiRate.toFixed(1)}%</span>
-              <span>スコア${formatSigned(row.totalLeagueScore)}</span>
+              ${rateBadge("トップ", row.topRate, medians.topRate)}
+              ${rateBadge("連対", row.rentaiRate, medians.rentaiRate)}
+              ${rateBadge("4着回避", row.avoidLastRate, medians.avoidLastRate)}
+              ${rateBadge("トビ", row.tobiRate, medians.tobiRate, true)}
+              ${rateBadge("トバし", row.tobashiRate, medians.tobashiRate)}
               <span>${formatNumber(Math.round(row.averageScore))}点</span>
             </div>
-          `
+          `;
+          }
         )
         .join("")}
     </div>
   `;
+  elements.trendChart.innerHTML = renderScoreTrend(scopedMatches);
 
   elements.matchList.innerHTML = scopedMatches
     .slice(0, 6)
@@ -585,7 +720,11 @@ function renderSummary() {
       const finishedAt = formatDateTime(match.finishedAt);
       const tobashi = formatTobashiPlayers(match);
       const scores = players
-        .map((player) => `${player.rank}位 ${player.name} ${formatSigned(getPlayerLeagueScore(player, match))}`)
+        .map((player) => {
+          const bonus = getPlayerTobashiBonus(player, match);
+          const bonusText = bonus ? ` 賞${formatSigned(bonus)}` : "";
+          return `${player.rank}位 ${player.name} ${formatSigned(getPlayerLeagueScore(player, match))} / チップ${formatSigned(getPlayerChipDiff(player))}${bonusText}`;
+        })
         .join(" / ");
       return `
         <article class="match-item">
@@ -598,6 +737,108 @@ function renderSummary() {
       `;
     })
     .join("");
+}
+
+function renderScoreTrend(matches) {
+  const chronological = getSortedMatches(matches).reverse();
+  if (chronological.length === 0) {
+    return "";
+  }
+
+  const names = [];
+  const totals = new Map();
+  const series = new Map();
+
+  const ensurePlayer = (name) => {
+    const key = String(name || "名前なし");
+    if (series.has(key)) {
+      return key;
+    }
+
+    names.push(key);
+    totals.set(key, 0);
+    series.set(key, [{ step: 0, value: 0 }]);
+    return key;
+  };
+
+  chronological.forEach((match, index) => {
+    (match.players || []).forEach((player) => {
+      const key = ensurePlayer(player.name);
+      totals.set(key, Number(totals.get(key) || 0) + getPlayerLeagueScore(player, match));
+    });
+
+    names.forEach((name) => {
+      series.get(name).push({ step: index + 1, value: Number(totals.get(name) || 0) });
+    });
+  });
+
+  const values = [...series.values()].flatMap((points) => points.map((point) => point.value));
+  let minValue = Math.min(0, ...values);
+  let maxValue = Math.max(0, ...values);
+  if (minValue === maxValue) {
+    minValue -= 10;
+    maxValue += 10;
+  }
+
+  const width = 680;
+  const height = 240;
+  const padLeft = 44;
+  const padRight = 104;
+  const padTop = 18;
+  const padBottom = 34;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - padBottom;
+  const stepMax = Math.max(1, chronological.length);
+  const yFor = (value) => padTop + ((maxValue - value) / (maxValue - minValue)) * plotHeight;
+  const xFor = (step) => padLeft + (step / stepMax) * plotWidth;
+  const zeroY = yFor(0);
+  const finalRows = names
+    .map((name) => ({
+      name,
+      value: Number(totals.get(name) || 0),
+    }))
+    .sort((a, b) => b.value - a.value);
+
+  const lines = finalRows
+    .map((row, index) => {
+      const points = (series.get(row.name) || [])
+        .map((point) => `${xFor(point.step).toFixed(1)},${yFor(point.value).toFixed(1)}`)
+        .join(" ");
+      return `<polyline points="${points}" fill="none" stroke="${chartColor(index)}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />`;
+    })
+    .join("");
+
+  const labels = finalRows
+    .map((row, index) => {
+      return `
+        <div class="trend-legend-item">
+          <span style="--trend-color: ${chartColor(index)}"></span>
+          <strong>${escapeHtml(row.name)}</strong>
+          <em class="${toneClass(row.value)}">${formatSigned(row.value)}</em>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <section class="trend-panel" aria-label="スコア推移">
+      <div class="trend-head">
+        <span>スコア推移</span>
+        <strong>${chronological.length}半荘</strong>
+      </div>
+      <div class="trend-body">
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="半荘スコアの累積推移">
+          <line x1="${padLeft}" y1="${zeroY.toFixed(1)}" x2="${width - padRight}" y2="${zeroY.toFixed(1)}" class="trend-zero" />
+          <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${height - padBottom}" class="trend-axis" />
+          <line x1="${padLeft}" y1="${height - padBottom}" x2="${width - padRight}" y2="${height - padBottom}" class="trend-axis" />
+          <text x="8" y="${yFor(maxValue).toFixed(1)}" class="trend-label">${formatSigned(maxValue)}</text>
+          <text x="8" y="${yFor(minValue).toFixed(1)}" class="trend-label">${formatSigned(minValue)}</text>
+          ${lines}
+        </svg>
+        <div class="trend-legend">${labels}</div>
+      </div>
+    </section>
+  `;
 }
 
 function renderSettings() {
@@ -663,6 +904,7 @@ function saveHand() {
     return {
       ...player,
       score: player.score + (finalDeltas[player.id] || 0),
+      chips: Number(player.chips ?? STARTING_CHIPS) + Number(draft.chipDeltas[player.id] || 0),
       hands: player.hands + 1,
       calls: player.calls + (action.call ? 1 : 0),
       riichi: player.riichi + (action.riichi ? 1 : 0),
@@ -683,6 +925,7 @@ function saveHand() {
     actions: deepClone(draft.actions),
     memo: draft.memo.trim(),
     manualDeltas: deepClone(draft.deltas),
+    manualChipDeltas: deepClone(draft.chipDeltas),
     finalDeltas: deepClone(finalDeltas),
     autoNotes: auto.notes,
     playersBefore,
@@ -717,6 +960,9 @@ function saveHand() {
 function syncDraftFromControls() {
   document.querySelectorAll("[data-delta-input]").forEach((input) => {
     draft.deltas[input.dataset.deltaInput] = normalizeScore(Number(input.value || 0));
+  });
+  document.querySelectorAll("[data-chip-input]").forEach((input) => {
+    draft.chipDeltas[input.dataset.chipInput] = normalizeChip(Number(input.value || 0));
   });
   syncWinningPlayersFromDeltas();
   draft.memo = elements.memoInput.value;
@@ -959,13 +1205,16 @@ function archiveCurrentMatch(endInfo) {
       const scoreDiff = player.score - STARTING_SCORE;
       const roundedScore = roundHundredsFiveDownSixUp(scoreDiff);
       const uma = getUmaForRank(rank, state.settings);
+      const tobashiBonus = getTobashiBonusForPlayer(player.id, info.tobashiShares || {}, state.settings);
       return {
         ...player,
         rank,
         scoreDiff,
         roundedScore,
         uma,
-        leagueScore: roundedScore + uma,
+        tobashiBonus,
+        leagueScore: roundedScore + uma + tobashiBonus,
+        chipDiff: Number(player.chips ?? STARTING_CHIPS) - STARTING_CHIPS,
       };
     }),
     history: deepClone(state.history),
@@ -982,10 +1231,7 @@ function createNextMatchState(previousState) {
     name: previousState.players[index] ? previousState.players[index].name : player.name,
   }));
   next.matches = Array.isArray(previousState.matches) ? previousState.matches : [];
-  next.settings = {
-    ...createDefaultSettings(),
-    ...(previousState.settings || {}),
-  };
+  next.settings = normalizeSettingsPayload(previousState.settings || {});
 
   return next;
 }
@@ -1127,20 +1373,24 @@ function buildSheetCsv(matches) {
   const aggregateRows = getAggregateRows(sortedMatches);
 
   rows.push(["総合成績"]);
-  rows.push(["順位", "名前", "半荘", "合計スコア", "平均スコア", "平均順位", "トップ率", "トビ率", "トバし率", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
+  rows.push(["順位", "名前", "半荘", "合計スコア", "平均スコア", "チップ差", "平均順位", "トップ率", "連対率", "4着回避率", "トビ率", "トバし率", "トバし賞", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
   aggregateRows.forEach((row, index) => {
     rows.push([
       index + 1,
       row.name,
       row.games,
-      row.totalLeagueScore,
-      row.averageLeagueScore.toFixed(2),
+      formatSigned(row.totalLeagueScore),
+      formatSigned(Number(row.averageLeagueScore.toFixed(2))),
+      formatSigned(row.totalChipDiff),
       row.averageRank.toFixed(2),
       formatRateValue(row.topRate),
+      formatRateValue(row.rentaiRate),
+      formatRateValue(row.avoidLastRate),
       formatRateValue(row.tobiRate),
       formatRateValue(row.tobashiRate),
+      formatSigned(row.totalTobashiBonus),
       Math.round(row.averageScore),
-      Math.round(row.totalScoreDiff),
+      formatSigned(Math.round(row.totalScoreDiff)),
       formatRateValue(row.winRate),
       formatRateValue(row.dealInRate),
       formatRateValue(row.riichiRate),
@@ -1150,7 +1400,7 @@ function buildSheetCsv(matches) {
 
   rows.push([]);
   rows.push(["半荘明細"]);
-  rows.push(["半荘", "終了日時", "終了理由", "順位", "名前", "点数", "点数差", "素点丸め", "ウマ", "半荘スコア", "トビ", "トバし"]);
+  rows.push(["半荘", "終了日時", "終了理由", "順位", "名前", "点数", "点数差", "素点丸め", "ウマ", "トバし賞", "半荘スコア", "チップ", "チップ差", "トビ", "トバし"]);
   sortedMatches.forEach((match) => {
     getPlayersWithRanks(match)
       .forEach((player) => {
@@ -1161,10 +1411,13 @@ function buildSheetCsv(matches) {
           player.rank,
           player.name,
           Number(player.score || 0),
-          getPlayerScoreDiff(player),
-          getPlayerRoundedScore(player),
-          getPlayerUma(player, match),
-          getPlayerLeagueScore(player, match),
+          formatSigned(getPlayerScoreDiff(player)),
+          formatSigned(getPlayerRoundedScore(player)),
+          formatSigned(getPlayerUma(player, match)),
+          formatSigned(getPlayerTobashiBonus(player, match)),
+          formatSigned(getPlayerLeagueScore(player, match)),
+          Number(player.chips ?? STARTING_CHIPS),
+          formatSigned(getPlayerChipDiff(player)),
           Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : "",
           Number((match.tobashiShares && match.tobashiShares[player.id]) || 0) || "",
         ]);
@@ -1250,9 +1503,13 @@ function getAggregateRows(matches) {
         games: 0,
         rankTotal: 0,
         topCount: 0,
+        secondOrBetterCount: 0,
+        avoidLastCount: 0,
         tobiCount: 0,
         tobashiCredit: 0,
+        tobashiBonusTotal: 0,
         leagueScoreTotal: 0,
+        chipDiffTotal: 0,
         scoreTotal: 0,
         scoreDiffTotal: 0,
         hands: 0,
@@ -1264,9 +1521,13 @@ function getAggregateRows(matches) {
       row.games += 1;
       row.rankTotal += rank;
       row.topCount += rank === 1 ? 1 : 0;
+      row.secondOrBetterCount += rank <= 2 ? 1 : 0;
+      row.avoidLastCount += rank < Math.max(1, (match.players || []).length) ? 1 : 0;
       row.tobiCount += Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : 0;
       row.tobashiCredit += Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+      row.tobashiBonusTotal += getPlayerTobashiBonus({ ...player, rank }, match);
       row.leagueScoreTotal += getPlayerLeagueScore({ ...player, rank }, match);
+      row.chipDiffTotal += getPlayerChipDiff(player);
       row.scoreTotal += player.score;
       row.scoreDiffTotal += getPlayerScoreDiff(player);
       row.hands += Number(player.hands || 0);
@@ -1283,10 +1544,14 @@ function getAggregateRows(matches) {
       ...row,
       averageRank: row.games ? row.rankTotal / row.games : 0,
       topRate: row.games ? (row.topCount / row.games) * 100 : 0,
+      rentaiRate: row.games ? (row.secondOrBetterCount / row.games) * 100 : 0,
+      avoidLastRate: row.games ? (row.avoidLastCount / row.games) * 100 : 0,
       tobiRate: row.games ? (row.tobiCount / row.games) * 100 : 0,
       tobashiRate: row.games ? (row.tobashiCredit / row.games) * 100 : 0,
+      totalTobashiBonus: row.tobashiBonusTotal,
       totalLeagueScore: row.leagueScoreTotal,
       averageLeagueScore: row.games ? row.leagueScoreTotal / row.games : 0,
+      totalChipDiff: row.chipDiffTotal,
       averageScore: row.games ? row.scoreTotal / row.games : 0,
       totalScoreDiff: row.scoreDiffTotal,
       callRate: row.hands ? (row.calls / row.hands) * 100 : 0,
@@ -1325,6 +1590,19 @@ function getPlayerScoreDiff(player) {
   return Number(player.score || 0) - STARTING_SCORE;
 }
 
+function getPlayerChipDiff(player) {
+  const chipDiff = Number(player.chipDiff);
+  if (Number.isFinite(chipDiff)) {
+    return chipDiff;
+  }
+
+  if (Number.isFinite(Number(player.chips))) {
+    return Number(player.chips) - STARTING_CHIPS;
+  }
+
+  return 0;
+}
+
 function getPlayerRoundedScore(player) {
   const roundedScore = Number(player.roundedScore);
   if (Number.isFinite(roundedScore)) {
@@ -1344,13 +1622,22 @@ function getPlayerUma(player, match) {
   return getUmaForRank(rank, match.settings || state.settings || {});
 }
 
+function getPlayerTobashiBonus(player, match) {
+  const storedBonus = Number(player.tobashiBonus);
+  if (Number.isFinite(storedBonus)) {
+    return storedBonus;
+  }
+
+  return getTobashiBonusForPlayer(player.id, match.tobashiShares || {}, match.settings || state.settings || {});
+}
+
 function getPlayerLeagueScore(player, match) {
   const leagueScore = Number(player.leagueScore);
   if (Number.isFinite(leagueScore)) {
-    return leagueScore;
+    return Number.isFinite(Number(player.tobashiBonus)) ? leagueScore : leagueScore + getPlayerTobashiBonus(player, match);
   }
 
-  return getPlayerRoundedScore(player) + getPlayerUma(player, match);
+  return getPlayerRoundedScore(player) + getPlayerUma(player, match) + getPlayerTobashiBonus(player, match);
 }
 
 function getUmaForRank(rank, settings) {
@@ -1361,6 +1648,15 @@ function getUmaForRank(rank, settings) {
   }
 
   return DEFAULT_UMA[rank - 1] || 0;
+}
+
+function getTobashiBonusForPlayer(playerId, shares, settings) {
+  if (settings && settings.tobashiBonusEnabled === false) {
+    return 0;
+  }
+
+  const share = Number((shares && shares[playerId]) || 0);
+  return share > 0 ? Number((share * TOBASHI_BONUS).toFixed(2)) : 0;
 }
 
 function roundHundredsFiveDownSixUp(value) {
@@ -1383,6 +1679,48 @@ function toCsvCell(value) {
 
 function formatRateValue(value) {
   return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function toneClass(value) {
+  const number = Number(value || 0);
+  return number > 0 ? "plus" : number < 0 ? "minus" : "";
+}
+
+function rateBadge(label, value, median, lowerIsBetter = false) {
+  return `<span class="${rateToneClass(value, median, lowerIsBetter)}">${label}${Number(value || 0).toFixed(1)}%</span>`;
+}
+
+function rateToneClass(value, median, lowerIsBetter = false) {
+  const number = Number(value || 0);
+  const center = Number(median || 0);
+  if (number === center) {
+    return "rate-mid";
+  }
+
+  const isGood = lowerIsBetter ? number < center : number > center;
+  return isGood ? "rate-good" : "rate-bad";
+}
+
+function getRateMedians(rows) {
+  const keys = ["topRate", "rentaiRate", "avoidLastRate", "tobiRate", "tobashiRate", "winRate", "dealInRate", "riichiRate", "callRate"];
+  return keys.reduce((medians, key) => {
+    medians[key] = median(rows.map((row) => Number(row[key] || 0)));
+    return medians;
+  }, {});
+}
+
+function median(values) {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (sorted.length === 0) {
+    return 0;
+  }
+
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function chartColor(index) {
+  return ["#0f7a5a", "#2f6fb3", "#b97800", "#b84a62", "#6c5ce7", "#008b8b"][index % 6];
 }
 
 function statTemplate(label, count, hands) {
@@ -1565,6 +1903,14 @@ function normalizeScore(value) {
   }
 
   return Math.round(value / 100) * 100;
+}
+
+function normalizeChip(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.round(value);
 }
 
 function clamp(value, min, max) {

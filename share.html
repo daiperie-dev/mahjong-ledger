@@ -7,7 +7,7 @@
     <title>共有成績 | Mahjong Ledger</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./share.css?v=12" />
+    <link rel="stylesheet" href="./share.css?v=13" />
   </head>
   <body>
     <div class="share-shell">
@@ -20,7 +20,7 @@
           </div>
         </div>
         <div class="topbar-actions">
-          <a class="button subtle" href="./index.html?v=12">本体へ</a>
+          <a class="button subtle" href="./index.html?v=13">本体へ</a>
           <button class="button" id="csvButton" type="button">CSV出力</button>
           <button class="button" id="importButton" type="button">JSON読込</button>
           <input id="importFile" type="file" accept="application/json,.json" hidden />
@@ -50,6 +50,7 @@
             </div>
           </div>
           <div class="standings-table" id="standingsTable"></div>
+          <div class="trend-chart" id="trendChart"></div>
         </section>
 
         <section class="matches-section" aria-labelledby="matchesHeading">
@@ -64,6 +65,6 @@
       </main>
     </div>
 
-    <script src="./share.js?v=12" defer></script>
+    <script src="./share.js?v=13" defer></script>
   </body>
 </html>

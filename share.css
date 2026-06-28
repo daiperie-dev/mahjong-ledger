@@ -281,9 +281,9 @@ h2 {
 
 .standing-row {
   display: grid;
-  grid-template-columns: 48px minmax(128px, 1.2fr) repeat(13, minmax(76px, 0.8fr));
+  grid-template-columns: 48px minmax(128px, 1.2fr) repeat(17, minmax(76px, 0.8fr));
   align-items: center;
-  min-width: 1240px;
+  min-width: 1580px;
   min-height: 52px;
   gap: 8px;
   padding: 9px 10px;
@@ -331,6 +331,111 @@ h2 {
 .minus {
   color: var(--danger);
   font-weight: 900;
+}
+
+.rate-good {
+  color: var(--accent);
+  font-weight: 900;
+}
+
+.rate-bad {
+  color: var(--danger);
+  font-weight: 900;
+}
+
+.rate-mid {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.trend-chart {
+  display: grid;
+  margin-top: 12px;
+}
+
+.trend-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+}
+
+.trend-head,
+.trend-body,
+.trend-legend-item {
+  display: flex;
+  align-items: center;
+}
+
+.trend-head {
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.trend-head strong {
+  color: var(--ink);
+}
+
+.trend-body {
+  gap: 12px;
+}
+
+.trend-body svg {
+  width: min(100%, 680px);
+  min-height: 190px;
+  flex: 1 1 480px;
+}
+
+.trend-axis,
+.trend-zero {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.trend-zero {
+  stroke-dasharray: 5 5;
+}
+
+.trend-label {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.trend-legend {
+  display: grid;
+  flex: 0 0 160px;
+  gap: 7px;
+}
+
+.trend-legend-item {
+  min-width: 0;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.trend-legend-item span {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--trend-color);
+}
+
+.trend-legend-item strong {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trend-legend-item em {
+  font-style: normal;
 }
 
 .match-list {
@@ -444,6 +549,16 @@ h2 {
 
   .scope-tabs {
     width: 100%;
+  }
+
+  .trend-body {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .trend-legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-basis: auto;
   }
 
   .summary-grid {

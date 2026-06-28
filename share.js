@@ -1,6 +1,8 @@
 const STORAGE_KEY = "mahjong-ledger-state-v1";
 const STARTING_SCORE = 25000;
-const DEFAULT_UMA = [20, 10, -10, -20];
+const STARTING_CHIPS = 20;
+const DEFAULT_UMA = [30, 10, -10, -30];
+const TOBASHI_BONUS = 10;
 
 const elements = {
   importButton: document.querySelector("#importButton"),
@@ -12,6 +14,7 @@ const elements = {
   standingsHeading: document.querySelector("#standingsHeading"),
   matchesHeading: document.querySelector("#matchesHeading"),
   standingsTable: document.querySelector("#standingsTable"),
+  trendChart: document.querySelector("#trendChart"),
   matchList: document.querySelector("#matchList"),
   scopeButtons: document.querySelectorAll("[data-scope]"),
 };
@@ -100,8 +103,30 @@ function normalizeState(data) {
     players: Array.isArray(data.players) ? data.players : [],
     matches: Array.isArray(data.matches) ? data.matches : [],
     createdAt: data.createdAt || "",
-    settings: data.settings || {},
+    settings: normalizeSettings(data.settings || {}),
   };
+}
+
+function normalizeSettings(settings) {
+  const normalized = { ...settings };
+  const keptPreviousDefaultUma =
+    Number(settings.umaRank1) === 20 &&
+    Number(settings.umaRank2) === 10 &&
+    Number(settings.umaRank3) === -10 &&
+    Number(settings.umaRank4) === -20;
+
+  if (keptPreviousDefaultUma || !Number.isFinite(Number(settings.umaRank1))) {
+    normalized.umaRank1 = DEFAULT_UMA[0];
+    normalized.umaRank2 = DEFAULT_UMA[1];
+    normalized.umaRank3 = DEFAULT_UMA[2];
+    normalized.umaRank4 = DEFAULT_UMA[3];
+  }
+
+  if (typeof normalized.tobashiBonusEnabled !== "boolean") {
+    normalized.tobashiBonusEnabled = true;
+  }
+
+  return normalized;
 }
 
 function render(state, source) {
@@ -109,6 +134,7 @@ function render(state, source) {
   const latestDayMatches = getLatestMatchDayMatches(matches);
   const scopedMatches = currentScope === "today" ? latestDayMatches : matches;
   const rows = getAggregateRows(scopedMatches);
+  const medians = getRateMedians(rows);
   const participantCount = rows.length || countCurrentPlayers(state.players);
   const latestMatch = scopedMatches[0] || matches[0] || null;
   const dayLabel = currentScope === "today" && latestMatch ? formatDateOnly(latestMatch.finishedAt) : "";
@@ -129,7 +155,8 @@ function render(state, source) {
     latestLabel: currentScope === "today" ? "対象日" : "最終更新",
     latestValue: currentScope === "today" ? dayLabel : formatDate(latestMatch ? latestMatch.finishedAt : state.createdAt),
   });
-  elements.standingsTable.innerHTML = rows.length ? renderStandings(rows) : renderEmpty(currentScope === "today" ? "当日の半荘がありません" : "保存済み半荘がありません");
+  elements.standingsTable.innerHTML = rows.length ? renderStandings(rows, medians) : renderEmpty(currentScope === "today" ? "当日の半荘がありません" : "保存済み半荘がありません");
+  elements.trendChart.innerHTML = scopedMatches.length ? renderScoreTrend(scopedMatches) : "";
   elements.matchList.innerHTML = scopedMatches.length ? renderMatches(scopedMatches) : renderEmpty("半荘保存後にここへ反映されます");
 }
 
@@ -154,7 +181,7 @@ function renderSummaryCards(summary) {
   `;
 }
 
-function renderStandings(rows) {
+function renderStandings(rows, medians) {
   const header = `
     <div class="standing-row header" aria-hidden="true">
       <span>順位</span>
@@ -162,10 +189,14 @@ function renderStandings(rows) {
       <span>半荘</span>
       <span>合計スコア</span>
       <span>平均スコア</span>
+      <span>チップ</span>
       <span>平均順位</span>
       <span>トップ</span>
+      <span>連対</span>
+      <span>4着回避</span>
       <span>トビ</span>
       <span>トバし</span>
+      <span>トバし賞</span>
       <span>平均点</span>
       <span>合計差</span>
       <span>和了</span>
@@ -177,7 +208,10 @@ function renderStandings(rows) {
 
   const body = rows
     .map((row, index) => {
-      const scoreClass = row.totalLeagueScore > 0 ? "plus" : row.totalLeagueScore < 0 ? "minus" : "";
+      const scoreClass = toneClass(row.totalLeagueScore);
+      const diffClass = toneClass(row.totalScoreDiff);
+      const chipClass = toneClass(row.totalChipDiff);
+      const bonusClass = toneClass(row.totalTobashiBonus);
       return `
         <article class="standing-row">
           <span class="rank">${index + 1}</span>
@@ -185,16 +219,20 @@ function renderStandings(rows) {
           <span>${row.games}</span>
           <span class="${scoreClass}">${formatSigned(row.totalLeagueScore)}</span>
           <span>${row.averageLeagueScore.toFixed(2)}</span>
+          <span class="${chipClass}">${formatSigned(row.totalChipDiff)}</span>
           <span>${row.averageRank.toFixed(2)}</span>
-          <span>${formatRate(row.topRate)}</span>
-          <span>${formatRate(row.tobiRate)}</span>
-          <span>${formatRate(row.tobashiRate)}</span>
+          ${rateCell(row.topRate, medians.topRate)}
+          ${rateCell(row.rentaiRate, medians.rentaiRate)}
+          ${rateCell(row.avoidLastRate, medians.avoidLastRate)}
+          ${rateCell(row.tobiRate, medians.tobiRate, true)}
+          ${rateCell(row.tobashiRate, medians.tobashiRate)}
+          <span class="${bonusClass}">${formatSigned(row.totalTobashiBonus)}</span>
           <span>${formatNumber(Math.round(row.averageScore))}</span>
-          <span class="${scoreClass}">${formatSigned(row.totalScoreDiff)}</span>
-          <span>${formatRate(row.winRate)}</span>
-          <span>${formatRate(row.dealInRate)}</span>
-          <span>${formatRate(row.riichiRate)}</span>
-          <span>${formatRate(row.callRate)}</span>
+          <span class="${diffClass}">${formatSigned(row.totalScoreDiff)}</span>
+          ${rateCell(row.winRate, medians.winRate)}
+          ${rateCell(row.dealInRate, medians.dealInRate, true)}
+          ${rateCell(row.riichiRate, medians.riichiRate)}
+          ${rateCell(row.callRate, medians.callRate)}
         </article>
       `;
     })
@@ -215,12 +253,16 @@ function renderMatches(matches) {
         .map(
           (player) => {
             const leagueScore = getPlayerLeagueScore(player, match);
-            const scoreClass = leagueScore > 0 ? "plus" : leagueScore < 0 ? "minus" : "";
+            const scoreClass = toneClass(leagueScore);
+            const chipDiff = getPlayerChipDiff(player);
+            const chipClass = toneClass(chipDiff);
+            const bonus = getPlayerTobashiBonus(player, match);
             return `
               <span>
                 <b>${player.rank}位 ${escapeHtml(player.name)}</b>
                 <strong class="${scoreClass}">${formatSigned(leagueScore)}</strong>
-                <small>${formatNumber(player.score)}点 / ウマ ${formatSigned(getPlayerUma(player, match))}</small>
+                <small>${formatNumber(player.score)}点 / ウマ ${formatSigned(getPlayerUma(player, match))}${bonus ? ` / 賞 ${formatSigned(bonus)}` : ""}</small>
+                <small class="${chipClass}">チップ ${formatSigned(chipDiff)}</small>
               </span>
             `;
           }
@@ -246,6 +288,104 @@ function renderMatches(matches) {
     .join("");
 }
 
+function renderScoreTrend(matches) {
+  const chronological = getSortedMatches(matches).reverse();
+  if (chronological.length === 0) {
+    return "";
+  }
+
+  const names = [];
+  const totals = new Map();
+  const series = new Map();
+  const ensurePlayer = (name) => {
+    const key = String(name || "名前なし");
+    if (series.has(key)) {
+      return key;
+    }
+
+    names.push(key);
+    totals.set(key, 0);
+    series.set(key, [{ step: 0, value: 0 }]);
+    return key;
+  };
+
+  chronological.forEach((match, index) => {
+    (match.players || []).forEach((player) => {
+      const key = ensurePlayer(player.name);
+      totals.set(key, Number(totals.get(key) || 0) + getPlayerLeagueScore(player, match));
+    });
+
+    names.forEach((name) => {
+      series.get(name).push({ step: index + 1, value: Number(totals.get(name) || 0) });
+    });
+  });
+
+  const values = [...series.values()].flatMap((points) => points.map((point) => point.value));
+  let minValue = Math.min(0, ...values);
+  let maxValue = Math.max(0, ...values);
+  if (minValue === maxValue) {
+    minValue -= 10;
+    maxValue += 10;
+  }
+
+  const width = 680;
+  const height = 240;
+  const padLeft = 44;
+  const padRight = 104;
+  const padTop = 18;
+  const padBottom = 34;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - padBottom;
+  const stepMax = Math.max(1, chronological.length);
+  const yFor = (value) => padTop + ((maxValue - value) / (maxValue - minValue)) * plotHeight;
+  const xFor = (step) => padLeft + (step / stepMax) * plotWidth;
+  const zeroY = yFor(0);
+  const finalRows = names
+    .map((name) => ({ name, value: Number(totals.get(name) || 0) }))
+    .sort((a, b) => b.value - a.value);
+
+  const lines = finalRows
+    .map((row, index) => {
+      const points = (series.get(row.name) || [])
+        .map((point) => `${xFor(point.step).toFixed(1)},${yFor(point.value).toFixed(1)}`)
+        .join(" ");
+      return `<polyline points="${points}" fill="none" stroke="${chartColor(index)}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />`;
+    })
+    .join("");
+
+  const labels = finalRows
+    .map(
+      (row, index) => `
+        <div class="trend-legend-item">
+          <span style="--trend-color: ${chartColor(index)}"></span>
+          <strong>${escapeHtml(row.name)}</strong>
+          <em class="${toneClass(row.value)}">${formatSigned(row.value)}</em>
+        </div>
+      `
+    )
+    .join("");
+
+  return `
+    <section class="trend-panel" aria-label="スコア推移">
+      <div class="trend-head">
+        <span>スコア推移</span>
+        <strong>${chronological.length}半荘</strong>
+      </div>
+      <div class="trend-body">
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="半荘スコアの累積推移">
+          <line x1="${padLeft}" y1="${zeroY.toFixed(1)}" x2="${width - padRight}" y2="${zeroY.toFixed(1)}" class="trend-zero" />
+          <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${height - padBottom}" class="trend-axis" />
+          <line x1="${padLeft}" y1="${height - padBottom}" x2="${width - padRight}" y2="${height - padBottom}" class="trend-axis" />
+          <text x="8" y="${yFor(maxValue).toFixed(1)}" class="trend-label">${formatSigned(maxValue)}</text>
+          <text x="8" y="${yFor(minValue).toFixed(1)}" class="trend-label">${formatSigned(minValue)}</text>
+          ${lines}
+        </svg>
+        <div class="trend-legend">${labels}</div>
+      </div>
+    </section>
+  `;
+}
+
 function renderEmpty(message) {
   return `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
@@ -255,20 +395,24 @@ function buildSheetCsv(matches) {
   const aggregateRows = getAggregateRows(matches);
 
   rows.push(["総合成績"]);
-  rows.push(["順位", "名前", "半荘", "合計スコア", "平均スコア", "平均順位", "トップ率", "トビ率", "トバし率", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
+  rows.push(["順位", "名前", "半荘", "合計スコア", "平均スコア", "チップ差", "平均順位", "トップ率", "連対率", "4着回避率", "トビ率", "トバし率", "トバし賞", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
   aggregateRows.forEach((row, index) => {
     rows.push([
       index + 1,
       row.name,
       row.games,
-      row.totalLeagueScore,
-      row.averageLeagueScore.toFixed(2),
+      formatSigned(row.totalLeagueScore),
+      formatSigned(Number(row.averageLeagueScore.toFixed(2))),
+      formatSigned(row.totalChipDiff),
       row.averageRank.toFixed(2),
       formatRate(row.topRate),
+      formatRate(row.rentaiRate),
+      formatRate(row.avoidLastRate),
       formatRate(row.tobiRate),
       formatRate(row.tobashiRate),
+      formatSigned(row.totalTobashiBonus),
       Math.round(row.averageScore),
-      Math.round(row.totalScoreDiff),
+      formatSigned(Math.round(row.totalScoreDiff)),
       formatRate(row.winRate),
       formatRate(row.dealInRate),
       formatRate(row.riichiRate),
@@ -278,7 +422,7 @@ function buildSheetCsv(matches) {
 
   rows.push([]);
   rows.push(["半荘明細"]);
-  rows.push(["半荘", "終了日時", "終了理由", "順位", "名前", "点数", "点数差", "素点丸め", "ウマ", "半荘スコア", "トビ", "トバし"]);
+  rows.push(["半荘", "終了日時", "終了理由", "順位", "名前", "点数", "点数差", "素点丸め", "ウマ", "トバし賞", "半荘スコア", "チップ", "チップ差", "トビ", "トバし"]);
   matches.forEach((match) => {
     getPlayersWithRanks(match).forEach((player) => {
       rows.push([
@@ -288,10 +432,13 @@ function buildSheetCsv(matches) {
         player.rank,
         player.name,
         Number(player.score || 0),
-        getScoreDiff(player),
-        getPlayerRoundedScore(player),
-        getPlayerUma(player, match),
-        getPlayerLeagueScore(player, match),
+        formatSigned(getScoreDiff(player)),
+        formatSigned(getPlayerRoundedScore(player)),
+        formatSigned(getPlayerUma(player, match)),
+        formatSigned(getPlayerTobashiBonus(player, match)),
+        formatSigned(getPlayerLeagueScore(player, match)),
+        Number(player.chips ?? STARTING_CHIPS),
+        formatSigned(getPlayerChipDiff(player)),
         Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : "",
         Number((match.tobashiShares && match.tobashiShares[player.id]) || 0) || "",
       ]);
@@ -335,9 +482,13 @@ function getAggregateRows(matches) {
         games: 0,
         rankTotal: 0,
         topCount: 0,
+        secondOrBetterCount: 0,
+        avoidLastCount: 0,
         tobiCount: 0,
         tobashiCredit: 0,
+        tobashiBonusTotal: 0,
         leagueScoreTotal: 0,
+        chipDiffTotal: 0,
         scoreTotal: 0,
         totalScoreDiff: 0,
         hands: 0,
@@ -350,9 +501,13 @@ function getAggregateRows(matches) {
       row.games += 1;
       row.rankTotal += rank;
       row.topCount += rank === 1 ? 1 : 0;
+      row.secondOrBetterCount += rank <= 2 ? 1 : 0;
+      row.avoidLastCount += rank < Math.max(1, (match.players || []).length) ? 1 : 0;
       row.tobiCount += Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : 0;
       row.tobashiCredit += Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+      row.tobashiBonusTotal += getPlayerTobashiBonus({ ...player, rank }, match);
       row.leagueScoreTotal += getPlayerLeagueScore({ ...player, rank }, match);
+      row.chipDiffTotal += getPlayerChipDiff(player);
       row.scoreTotal += Number(player.score || 0);
       row.totalScoreDiff += getScoreDiff(player);
       row.hands += Number(player.hands || 0);
@@ -369,10 +524,14 @@ function getAggregateRows(matches) {
       ...row,
       averageRank: row.games ? row.rankTotal / row.games : 0,
       topRate: row.games ? (row.topCount / row.games) * 100 : 0,
+      rentaiRate: row.games ? (row.secondOrBetterCount / row.games) * 100 : 0,
+      avoidLastRate: row.games ? (row.avoidLastCount / row.games) * 100 : 0,
       tobiRate: row.games ? (row.tobiCount / row.games) * 100 : 0,
       tobashiRate: row.games ? (row.tobashiCredit / row.games) * 100 : 0,
+      totalTobashiBonus: row.tobashiBonusTotal,
       totalLeagueScore: row.leagueScoreTotal,
       averageLeagueScore: row.games ? row.leagueScoreTotal / row.games : 0,
+      totalChipDiff: row.chipDiffTotal,
       averageScore: row.games ? row.scoreTotal / row.games : 0,
       callRate: row.hands ? (row.calls / row.hands) * 100 : 0,
       riichiRate: row.hands ? (row.riichi / row.hands) * 100 : 0,
@@ -406,6 +565,18 @@ function getScoreDiff(player) {
   return Number(player.score || 0) - STARTING_SCORE;
 }
 
+function getPlayerChipDiff(player) {
+  if (Number.isFinite(Number(player.chipDiff))) {
+    return Number(player.chipDiff);
+  }
+
+  if (Number.isFinite(Number(player.chips))) {
+    return Number(player.chips) - STARTING_CHIPS;
+  }
+
+  return 0;
+}
+
 function getPlayerRoundedScore(player) {
   const roundedScore = Number(player.roundedScore);
   if (Number.isFinite(roundedScore)) {
@@ -425,13 +596,22 @@ function getPlayerUma(player, match) {
   return getUmaForRank(rank, match.settings || currentState.settings || {});
 }
 
+function getPlayerTobashiBonus(player, match) {
+  const storedBonus = Number(player.tobashiBonus);
+  if (Number.isFinite(storedBonus)) {
+    return storedBonus;
+  }
+
+  return getTobashiBonusForPlayer(player.id, match.tobashiShares || {}, match.settings || currentState.settings || {});
+}
+
 function getPlayerLeagueScore(player, match) {
   const leagueScore = Number(player.leagueScore);
   if (Number.isFinite(leagueScore)) {
-    return leagueScore;
+    return Number.isFinite(Number(player.tobashiBonus)) ? leagueScore : leagueScore + getPlayerTobashiBonus(player, match);
   }
 
-  return getPlayerRoundedScore(player) + getPlayerUma(player, match);
+  return getPlayerRoundedScore(player) + getPlayerUma(player, match) + getPlayerTobashiBonus(player, match);
 }
 
 function getUmaForRank(rank, settings) {
@@ -442,6 +622,15 @@ function getUmaForRank(rank, settings) {
   }
 
   return DEFAULT_UMA[rank - 1] || 0;
+}
+
+function getTobashiBonusForPlayer(playerId, shares, settings) {
+  if (settings && settings.tobashiBonusEnabled === false) {
+    return 0;
+  }
+
+  const share = Number((shares && shares[playerId]) || 0);
+  return share > 0 ? Number((share * TOBASHI_BONUS).toFixed(2)) : 0;
 }
 
 function roundHundredsFiveDownSixUp(value) {
@@ -558,6 +747,48 @@ function formatSigned(value) {
 
 function formatRate(value) {
   return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function toneClass(value) {
+  const number = Number(value || 0);
+  return number > 0 ? "plus" : number < 0 ? "minus" : "";
+}
+
+function rateCell(value, median, lowerIsBetter = false) {
+  return `<span class="${rateToneClass(value, median, lowerIsBetter)}">${formatRate(value)}</span>`;
+}
+
+function rateToneClass(value, median, lowerIsBetter = false) {
+  const number = Number(value || 0);
+  const center = Number(median || 0);
+  if (number === center) {
+    return "rate-mid";
+  }
+
+  const isGood = lowerIsBetter ? number < center : number > center;
+  return isGood ? "rate-good" : "rate-bad";
+}
+
+function getRateMedians(rows) {
+  const keys = ["topRate", "rentaiRate", "avoidLastRate", "tobiRate", "tobashiRate", "winRate", "dealInRate", "riichiRate", "callRate"];
+  return keys.reduce((medians, key) => {
+    medians[key] = median(rows.map((row) => Number(row[key] || 0)));
+    return medians;
+  }, {});
+}
+
+function median(values) {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (sorted.length === 0) {
+    return 0;
+  }
+
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function chartColor(index) {
+  return ["#0f7a5a", "#2f6fb3", "#b97800", "#b84a62", "#6c5ce7", "#008b8b"][index % 6];
 }
 
 function escapeHtml(value) {

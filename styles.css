@@ -417,6 +417,28 @@ body[data-theme="dark"] .wind-chip.dealer {
   color: var(--danger);
 }
 
+.chip-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 12px;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.chip-line span {
+  color: var(--muted);
+}
+
+.chip-line strong {
+  color: var(--ink);
+}
+
+.chip-line em {
+  margin-left: auto;
+  font-style: normal;
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -533,7 +555,7 @@ input {
 
 .delta-row {
   display: grid;
-  grid-template-columns: minmax(78px, 0.85fr) minmax(92px, 1fr) 188px;
+  grid-template-columns: minmax(78px, 0.85fr) minmax(92px, 1fr) 224px;
   gap: 8px;
   align-items: center;
 }
@@ -582,7 +604,7 @@ body[data-theme="dark"] .mini-wind.dealer {
 
 .delta-buttons {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
 }
 
@@ -604,6 +626,75 @@ body[data-theme="dark"] .mini-wind.dealer {
 }
 
 .delta-button.negative {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.delta-button.clear,
+.chip-button.clear {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.chip-grid {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.chip-row {
+  display: grid;
+  grid-template-columns: minmax(78px, 0.8fr) minmax(82px, 0.7fr) minmax(70px, 0.55fr) 188px;
+  gap: 8px;
+  align-items: center;
+}
+
+.chip-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-current {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.chip-input {
+  text-align: right;
+  font-weight: 900;
+}
+
+.chip-buttons {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.chip-buttons button {
+  min-height: 34px;
+  padding: 0;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.chip-button.positive {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.chip-button.negative {
   border-color: var(--danger);
   background: var(--danger-soft);
   color: var(--danger);
@@ -779,6 +870,110 @@ body[data-theme="dark"] .mini-wind.dealer {
   font-weight: 800;
 }
 
+.summary-row .plus,
+.summary-row .rate-good {
+  color: var(--accent-strong);
+}
+
+.summary-row .minus,
+.summary-row .rate-bad {
+  color: var(--danger);
+}
+
+.rate-mid {
+  color: var(--muted);
+}
+
+.trend-chart {
+  display: grid;
+  margin-top: 8px;
+}
+
+.trend-panel {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+}
+
+.trend-head,
+.trend-body,
+.trend-legend-item {
+  display: flex;
+  align-items: center;
+}
+
+.trend-head {
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.trend-head strong {
+  color: var(--ink);
+}
+
+.trend-body {
+  gap: 10px;
+}
+
+.trend-body svg {
+  width: min(100%, 680px);
+  min-height: 180px;
+  flex: 1 1 420px;
+}
+
+.trend-axis,
+.trend-zero {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.trend-zero {
+  stroke-dasharray: 5 5;
+}
+
+.trend-label {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.trend-legend {
+  display: grid;
+  flex: 0 0 150px;
+  gap: 6px;
+}
+
+.trend-legend-item {
+  min-width: 0;
+  gap: 6px;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.trend-legend-item span {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--trend-color);
+}
+
+.trend-legend-item strong {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trend-legend-item em {
+  font-style: normal;
+}
+
 .match-list {
   margin-top: 8px;
 }
@@ -894,9 +1089,32 @@ body[data-theme="dark"] .mini-wind.dealer {
     grid-template-columns: minmax(70px, 0.75fr) minmax(82px, 1fr);
   }
 
+  .chip-row {
+    grid-template-columns: minmax(70px, 0.75fr) minmax(82px, 1fr);
+  }
+
   .delta-buttons {
     grid-column: 1 / -1;
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .chip-current {
+    text-align: right;
+  }
+
+  .chip-input,
+  .chip-buttons {
+    grid-column: 1 / -1;
+  }
+
+  .trend-body {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .trend-legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-basis: auto;
   }
 
   .summary-row strong {
