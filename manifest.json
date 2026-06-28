@@ -1,0 +1,17 @@
+{
+  "name": "Mahjong Ledger",
+  "short_name": "Mahjong",
+  "description": "麻雀対局の点数、順位、行動率を記録するスコアアプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f7f3ea",
+  "theme_color": "#f7f3ea",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
