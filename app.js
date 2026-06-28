@@ -3,6 +3,7 @@ const THEME_KEY = "mahjong-ledger-theme-v1";
 const SHARE_CONFIG_KEY = "mahjong-ledger-share-config-v1";
 const DEFAULT_REMOTE_SHARE_API_BASE_URL = "https://mahjong-ledger-share.daiperie-mahjong-ledger.workers.dev";
 const STARTING_SCORE = 25000;
+const RETURN_SCORE = 30000;
 const STARTING_CHIPS = 20;
 const ROUNDS = ["東1局", "東2局", "東3局", "東4局", "南1局", "南2局", "南3局", "南4局"];
 const HONBA_RON_POINTS = 300;
@@ -51,6 +52,12 @@ const SETTINGS = [
     ],
   },
   { key: "tobashiBonusEnabled", label: "トバし賞+10", type: "checkbox" },
+  { key: "ledgerShowTobi", label: "記録票: トビ", type: "checkbox" },
+  { key: "ledgerShowTobashi", label: "記録票: トバし", type: "checkbox" },
+  { key: "ledgerShowTobashiBonus", label: "記録票: トバし賞", type: "checkbox" },
+  { key: "ledgerShowRawScore", label: "記録票: 点数", type: "checkbox" },
+  { key: "ledgerShowRoundedScore", label: "記録票: 素点丸め", type: "checkbox" },
+  { key: "ledgerShowUma", label: "記録票: ウマ", type: "checkbox" },
   { key: "umaRank1", label: "ウマ1位", type: "number", step: 1, normalize: "integer" },
   { key: "umaRank2", label: "ウマ2位", type: "number", step: 1, normalize: "integer" },
   { key: "umaRank3", label: "ウマ3位", type: "number", step: 1, normalize: "integer" },
@@ -148,6 +155,12 @@ function createDefaultSettings() {
     tobiThreshold: 0,
     drawTobashiMode: "kamicha",
     tobashiBonusEnabled: true,
+    ledgerShowTobi: false,
+    ledgerShowTobashi: false,
+    ledgerShowTobashiBonus: false,
+    ledgerShowRawScore: false,
+    ledgerShowRoundedScore: false,
+    ledgerShowUma: false,
     umaRank1: DEFAULT_UMA[0],
     umaRank2: DEFAULT_UMA[1],
     umaRank3: DEFAULT_UMA[2],
@@ -861,13 +874,42 @@ function renderMetricLedger(rows) {
   `;
 }
 
+function getLedgerColumns(settings = state.settings || {}) {
+  const columns = [
+    { key: "rank", label: "順位" },
+    { key: "chip", label: "チップ" },
+    { key: "leagueScore", label: "スコア" },
+  ];
+
+  if (settings.ledgerShowTobi) {
+    columns.push({ key: "tobi", label: "トビ" });
+  }
+  if (settings.ledgerShowTobashi) {
+    columns.push({ key: "tobashi", label: "トバし" });
+  }
+  if (settings.ledgerShowTobashiBonus) {
+    columns.push({ key: "tobashiBonus", label: "トバし賞" });
+  }
+  if (settings.ledgerShowRawScore) {
+    columns.push({ key: "rawScore", label: "点数" });
+  }
+  if (settings.ledgerShowRoundedScore) {
+    columns.push({ key: "roundedScore", label: "素点丸め" });
+  }
+  if (settings.ledgerShowUma) {
+    columns.push({ key: "uma", label: "ウマ" });
+  }
+
+  return columns;
+}
+
 function renderMatchLedger(matches) {
   const sheetPlayers = getLedgerPlayers(matches);
+  const columns = getLedgerColumns();
   if (!matches.length || !sheetPlayers.length) {
     return `<div class="history-empty">表示できる半荘がありません</div>`;
   }
 
-  const subColumns = ["順位", "チップ", "半荘スコア", "トビ", "トバし", "トバし賞", "点数", "素点丸め", "ウマ"];
   const chronological = getSortedMatches(matches).reverse();
 
   return `
@@ -876,11 +918,11 @@ function renderMatchLedger(matches) {
         <thead>
           <tr>
             <th rowspan="2">半荘</th>
-            <th rowspan="2">保存時刻</th>
-            ${sheetPlayers.map((player) => `<th colspan="${subColumns.length}">${escapeHtml(player.name)}</th>`).join("")}
+            <th rowspan="2">保存日時</th>
+            ${sheetPlayers.map((player) => `<th colspan="${columns.length}">${escapeHtml(player.name)}</th>`).join("")}
           </tr>
           <tr>
-            ${sheetPlayers.map(() => subColumns.map((column) => `<th>${column}</th>`).join("")).join("")}
+            ${sheetPlayers.map(() => columns.map((column) => `<th>${column.label}</th>`).join("")).join("")}
           </tr>
         </thead>
         <tbody>
@@ -889,7 +931,7 @@ function renderMatchLedger(matches) {
               <tr>
                 <th>${escapeHtml(match.label || `半荘${match.number || ""}`)}</th>
                 <td>${escapeHtml(formatDateTime(match.finishedAt))}</td>
-                ${sheetPlayers.map((player) => renderMatchLedgerPlayerCells(match, player.id)).join("")}
+                ${sheetPlayers.map((player) => renderMatchLedgerPlayerCells(match, player.key, columns)).join("")}
               </tr>
             `)
             .join("")}
@@ -899,68 +941,92 @@ function renderMatchLedger(matches) {
   `;
 }
 
-function renderMatchLedgerPlayerCells(match, playerId) {
-  const player = (match.players || []).find((item) => item.id === playerId);
+function renderMatchLedgerPlayerCells(match, playerKey, columns = getLedgerColumns()) {
+  const player = findMatchLedgerPlayer(match, playerKey);
   if (!player) {
-    return Array.from({ length: 9 }, () => `<td></td>`).join("");
+    return Array.from({ length: columns.length }, () => `<td></td>`).join("");
   }
 
-  const leagueScore = getPlayerLeagueScore(player, match);
-  const chipDiff = getPlayerChipDiff(player);
-  const scoreDiff = getPlayerScoreDiff(player);
-  const tobashiShare = Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
-  const isBusted = Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id);
-
-  return [
-    `<td>${player.rank || getRanksForPlayers(match.players || []).get(player.id) || ""}</td>`,
-    `<td class="${toneClass(chipDiff)}">${formatSigned(chipDiff)}</td>`,
-    `<td class="${toneClass(leagueScore)}">${formatSigned(leagueScore)}</td>`,
-    `<td>${isBusted ? "1" : ""}</td>`,
-    `<td>${tobashiShare ? tobashiShare : ""}</td>`,
-    `<td class="${toneClass(getPlayerTobashiBonus(player, match))}">${formatSigned(getPlayerTobashiBonus(player, match))}</td>`,
-    `<td>${formatNumber(player.score || 0)}</td>`,
-    `<td class="${toneClass(getPlayerRoundedScore(player))}">${formatSigned(getPlayerRoundedScore(player))}</td>`,
-    `<td class="${toneClass(getPlayerUma(player, match))}">${formatSigned(getPlayerUma(player, match))}</td>`,
-  ].join("");
+  return columns
+    .map((column) => {
+      const cell = getMatchLedgerCell(column.key, player, match);
+      return `<td class="${cell.className || ""}">${escapeHtml(cell.text)}</td>`;
+    })
+    .join("");
 }
 
-function getMatchLedgerCsvCells(match, playerId) {
-  const player = (match.players || []).find((item) => item.id === playerId);
+function getMatchLedgerCsvCells(match, playerKey, columns = getLedgerColumns()) {
+  const player = findMatchLedgerPlayer(match, playerKey);
   if (!player) {
-    return Array(9).fill("");
+    return Array(columns.length).fill("");
   }
 
+  return columns.map((column) => getMatchLedgerCell(column.key, player, match).csv);
+}
+
+function getMatchLedgerCell(columnKey, player, match) {
+  const rank = player.rank || getRanksForPlayers(match.players || []).get(player.id) || "";
+  const chipDiff = getPlayerChipDiff(player);
+  const leagueScore = getPlayerLeagueScore(player, match);
   const tobashiShare = Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
   const isBusted = Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id);
+  const tobashiBonus = getPlayerTobashiBonus(player, match);
+  const roundedScore = getPlayerRoundedScore(player);
+  const uma = getPlayerUma(player, match);
 
-  return [
-    player.rank || getRanksForPlayers(match.players || []).get(player.id) || "",
-    formatSigned(getPlayerChipDiff(player)),
-    formatSigned(getPlayerLeagueScore(player, match)),
-    isBusted ? 1 : "",
-    tobashiShare || "",
-    formatSigned(getPlayerTobashiBonus(player, match)),
-    Number(player.score || 0),
-    formatSigned(getPlayerRoundedScore(player)),
-    formatSigned(getPlayerUma(player, match)),
-  ];
+  switch (columnKey) {
+    case "rank":
+      return { text: String(rank || ""), csv: rank || "" };
+    case "chip":
+      return { text: formatSigned(chipDiff), csv: formatSigned(chipDiff), className: toneClass(chipDiff) };
+    case "leagueScore":
+      return { text: formatSigned(leagueScore), csv: formatSigned(leagueScore), className: toneClass(leagueScore) };
+    case "tobi":
+      return { text: isBusted ? "1" : "", csv: isBusted ? 1 : "" };
+    case "tobashi":
+      return { text: tobashiShare ? String(tobashiShare) : "", csv: tobashiShare || "" };
+    case "tobashiBonus":
+      return { text: formatSigned(tobashiBonus), csv: formatSigned(tobashiBonus), className: toneClass(tobashiBonus) };
+    case "rawScore":
+      return { text: formatNumber(player.score || 0), csv: Number(player.score || 0) };
+    case "roundedScore":
+      return { text: formatSigned(roundedScore), csv: formatSigned(roundedScore), className: toneClass(roundedScore) };
+    case "uma":
+      return { text: formatSigned(uma), csv: formatSigned(uma), className: toneClass(uma) };
+    default:
+      return { text: "", csv: "" };
+  }
 }
 
 function getLedgerPlayers(matches) {
   const players = new Map();
-  state.players.forEach((player) => {
-    players.set(player.id, { id: player.id, name: player.name || defaultPlayerName(player.seat) });
-  });
-
-  getSortedMatches(matches).reverse().forEach((match) => {
-    (match.players || []).forEach((player) => {
-      if (!players.has(player.id)) {
-        players.set(player.id, { id: player.id, name: player.name || "" });
-      }
+  const addPlayer = (player) => {
+    const key = getLedgerPlayerKey(player);
+    if (!key || players.has(key)) {
+      return;
+    }
+    players.set(key, {
+      id: key,
+      key,
+      name: player.name || defaultPlayerName(player.seat) || key,
     });
+  };
+
+  state.players.forEach(addPlayer);
+  getSortedMatches(matches).reverse().forEach((match) => {
+    (match.players || []).forEach(addPlayer);
   });
 
-  return Array.from(players.values()).filter((player) => player.id);
+  return Array.from(players.values());
+}
+
+function findMatchLedgerPlayer(match, playerKey) {
+  return (match.players || []).find((player) => getLedgerPlayerKey(player) === playerKey);
+}
+
+function getLedgerPlayerKey(player) {
+  const name = String((player && player.name) || "").trim();
+  return name || String((player && player.id) || "");
 }
 
 function renderSummary() {
@@ -1714,10 +1780,12 @@ function archiveCurrentMatch(endInfo) {
     tobashiShares: info.tobashiShares || {},
     players: players.map((player) => {
       const rank = ranks.get(player.id);
-      const scoreDiff = player.score - STARTING_SCORE;
+      const scoreDiff = player.score - RETURN_SCORE;
       const roundedScore = roundHundredsFiveDownSixUp(scoreDiff);
       const uma = getUmaForRank(rank, state.settings);
-      const tobashiBonus = getTobashiBonusForPlayer(player.id, info.tobashiShares || {}, state.settings);
+      const tobashiBonus =
+        getTobashiBonusForPlayer(player.id, info.tobashiShares || {}, state.settings) -
+        getTobashiPenaltyForPlayer(player.id, info.bustedIds || [], state.settings);
       return {
         ...player,
         rank,
@@ -1891,7 +1959,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=23", window.location.href);
+  const url = new URL("./share.html?v=24", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -1926,7 +1994,7 @@ async function buildRemoteShareUrl(snapshot) {
       throw new Error("Share API returned an invalid id");
     }
 
-    const url = new URL("./share.html?v=23", window.location.href);
+    const url = new URL("./share.html?v=24", window.location.href);
     url.searchParams.set("id", id);
 
     const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
@@ -1995,6 +2063,12 @@ function pickShareSettings(settings) {
   return [
     "drawTobashiMode",
     "tobashiBonusEnabled",
+    "ledgerShowTobi",
+    "ledgerShowTobashi",
+    "ledgerShowTobashiBonus",
+    "ledgerShowRawScore",
+    "ledgerShowRoundedScore",
+    "ledgerShowUma",
     "umaRank1",
     "umaRank2",
     "umaRank3",
@@ -2091,22 +2165,21 @@ function buildSheetCsv(matches) {
   const sortedMatches = getSortedMatches(matches);
   const aggregateRows = getAggregateRows(sortedMatches);
   const sheetPlayers = getLedgerPlayers(sortedMatches);
-  const matchColumns = ["順位", "チップ", "半荘スコア", "トビ", "トバし", "トバし賞", "点数", "素点丸め", "ウマ"];
+  const matchColumns = getLedgerColumns();
 
   rows.push(["半荘成績"]);
   rows.push([
     "半荘",
     "保存日時",
     "終了理由",
-    ...sheetPlayers.flatMap((player) => [player.name, ...Array(matchColumns.length - 1).fill("")]),
+    ...sheetPlayers.flatMap((player) => matchColumns.map((column) => `${player.name} ${column.label}`)),
   ]);
-  rows.push(["", "", "", ...sheetPlayers.flatMap(() => matchColumns)]);
   sortedMatches.reverse().forEach((match) => {
     rows.push([
       match.label || `半荘${match.number || ""}`,
       formatCsvDateTime(match.finishedAt),
       match.endReason || "保存済み",
-      ...sheetPlayers.flatMap((sheetPlayer) => getMatchLedgerCsvCells(match, sheetPlayer.id)),
+      ...sheetPlayers.flatMap((sheetPlayer) => getMatchLedgerCsvCells(match, sheetPlayer.key, matchColumns)),
     ]);
   });
 
@@ -2128,60 +2201,6 @@ function buildSheetCsv(matches) {
     ["副露率", (row) => formatRateValue(row.callRate)],
   ].forEach(([label, getter]) => {
     rows.push([label, ...aggregateRows.map((row) => getter(row))]);
-  });
-
-  return `\uFEFF${rows.map(toCsvRow).join("\r\n")}`;
-
-  rows.push(["総合成績"]);
-  rows.push(["順位", "名前", "半荘", "合計スコア", "平均スコア", "チップ差", "平均順位", "トップ率", "連対率", "4着回避率", "トビ率", "トバし率", "トバし賞", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
-  aggregateRows.forEach((row, index) => {
-    rows.push([
-      index + 1,
-      row.name,
-      row.games,
-      formatSigned(row.totalLeagueScore),
-      formatSigned(Number(row.averageLeagueScore.toFixed(2))),
-      formatSigned(row.totalChipDiff),
-      row.averageRank.toFixed(2),
-      formatRateValue(row.topRate),
-      formatRateValue(row.rentaiRate),
-      formatRateValue(row.avoidLastRate),
-      formatRateValue(row.tobiRate),
-      formatRateValue(row.tobashiRate),
-      formatSigned(row.totalTobashiBonus),
-      Math.round(row.averageScore),
-      formatSigned(Math.round(row.totalScoreDiff)),
-      formatRateValue(row.winRate),
-      formatRateValue(row.dealInRate),
-      formatRateValue(row.riichiRate),
-      formatRateValue(row.callRate),
-    ]);
-  });
-
-  rows.push([]);
-  rows.push(["半荘明細"]);
-  rows.push(["半荘", "終了日時", "終了理由", "順位", "名前", "点数", "点数差", "素点丸め", "ウマ", "トバし賞", "半荘スコア", "チップ", "チップ差", "トビ", "トバし"]);
-  sortedMatches.forEach((match) => {
-    getPlayersWithRanks(match)
-      .forEach((player) => {
-        rows.push([
-          match.label || `半荘${match.number || ""}`,
-          formatCsvDateTime(match.finishedAt),
-          match.endReason || "保存",
-          player.rank,
-          player.name,
-          Number(player.score || 0),
-          formatSigned(getPlayerScoreDiff(player)),
-          formatSigned(getPlayerRoundedScore(player)),
-          formatSigned(getPlayerUma(player, match)),
-          formatSigned(getPlayerTobashiBonus(player, match)),
-          formatSigned(getPlayerLeagueScore(player, match)),
-          Number(player.chips ?? STARTING_CHIPS),
-          formatSigned(getPlayerChipDiff(player)),
-          Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : "",
-          Number((match.tobashiShares && match.tobashiShares[player.id]) || 0) || "",
-        ]);
-      });
   });
 
   return `\uFEFF${rows.map(toCsvRow).join("\r\n")}`;
@@ -2363,12 +2382,7 @@ function formatTobashiPlayers(match) {
 }
 
 function getPlayerScoreDiff(player) {
-  const scoreDiff = Number(player.scoreDiff);
-  if (Number.isFinite(scoreDiff)) {
-    return scoreDiff;
-  }
-
-  return Number(player.score || 0) - STARTING_SCORE;
+  return Number(player.score || 0) - RETURN_SCORE;
 }
 
 function getPlayerChipDiff(player) {
@@ -2385,11 +2399,6 @@ function getPlayerChipDiff(player) {
 }
 
 function getPlayerRoundedScore(player) {
-  const roundedScore = Number(player.roundedScore);
-  if (Number.isFinite(roundedScore)) {
-    return roundedScore;
-  }
-
   return roundHundredsFiveDownSixUp(getPlayerScoreDiff(player));
 }
 
@@ -2404,20 +2413,14 @@ function getPlayerUma(player, match) {
 }
 
 function getPlayerTobashiBonus(player, match) {
-  const storedBonus = Number(player.tobashiBonus);
-  if (Number.isFinite(storedBonus)) {
-    return storedBonus;
-  }
-
-  return getTobashiBonusForPlayer(player.id, match.tobashiShares || {}, match.settings || state.settings || {});
+  const settings = match.settings || state.settings || {};
+  return (
+    getTobashiBonusForPlayer(player.id, match.tobashiShares || {}, settings) -
+    getTobashiPenaltyForPlayer(player.id, match.bustedIds || [], settings)
+  );
 }
 
 function getPlayerLeagueScore(player, match) {
-  const leagueScore = Number(player.leagueScore);
-  if (Number.isFinite(leagueScore)) {
-    return Number.isFinite(Number(player.tobashiBonus)) ? leagueScore : leagueScore + getPlayerTobashiBonus(player, match);
-  }
-
   return getPlayerRoundedScore(player) + getPlayerUma(player, match) + getPlayerTobashiBonus(player, match);
 }
 
@@ -2438,6 +2441,14 @@ function getTobashiBonusForPlayer(playerId, shares, settings) {
 
   const share = Number((shares && shares[playerId]) || 0);
   return share > 0 ? Number((share * TOBASHI_BONUS).toFixed(2)) : 0;
+}
+
+function getTobashiPenaltyForPlayer(playerId, bustedIds, settings) {
+  if (settings && settings.tobashiBonusEnabled === false) {
+    return 0;
+  }
+
+  return Array.isArray(bustedIds) && bustedIds.includes(playerId) ? TOBASHI_BONUS : 0;
 }
 
 function roundHundredsFiveDownSixUp(value) {
