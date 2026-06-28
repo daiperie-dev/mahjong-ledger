@@ -697,6 +697,23 @@ body[data-theme="dark"] .mini-wind.dealer {
   gap: 8px;
 }
 
+.archive-scope-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(64px, 1fr));
+  gap: 8px;
+}
+
+.archive-scope-tabs button {
+  min-height: 36px;
+  font-weight: 900;
+}
+
+.archive-scope-tabs button[aria-pressed="true"] {
+  border-color: var(--accent-strong);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
 .summary-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -848,6 +865,10 @@ body[data-theme="dark"] .mini-wind.dealer {
   .section-title {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .archive-scope-tabs {
+    width: 100%;
   }
 
   .round-toolbar,

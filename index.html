@@ -7,7 +7,7 @@
     <title>Mahjong Ledger</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=11" />
+    <link rel="stylesheet" href="./styles.css?v=12" />
   </head>
   <body>
     <div class="app-shell">
@@ -20,7 +20,7 @@
           </div>
         </div>
         <div class="topbar-actions">
-          <a class="button subtle link-button" href="./share.html?v=11">共有</a>
+          <a class="button subtle link-button" href="./share.html?v=12">共有</a>
           <button class="icon-button" id="themeToggle" type="button" aria-label="表示切替" title="表示切替">
             ◐
           </button>
@@ -144,6 +144,10 @@
               <p class="eyebrow">Archive</p>
               <h2 id="summaryHeading">総合成績</h2>
             </div>
+            <div class="archive-scope-tabs" role="tablist" aria-label="成績表示">
+              <button type="button" data-archive-scope="overall" aria-pressed="true">総合</button>
+              <button type="button" data-archive-scope="today" aria-pressed="false">当日</button>
+            </div>
           </div>
           <div class="summary-stats" id="summaryStats"></div>
           <div class="match-list" id="matchList"></div>
@@ -161,6 +165,6 @@
       </main>
     </div>
 
-    <script src="./app.js?v=11" defer></script>
+    <script src="./app.js?v=12" defer></script>
   </body>
 </html>

@@ -1,5 +1,6 @@
 const STORAGE_KEY = "mahjong-ledger-state-v1";
 const STARTING_SCORE = 25000;
+const DEFAULT_UMA = [20, 10, -10, -20];
 
 const elements = {
   importButton: document.querySelector("#importButton"),
@@ -8,16 +9,21 @@ const elements = {
   sourceLabel: document.querySelector("#sourceLabel"),
   sourceDetail: document.querySelector("#sourceDetail"),
   summaryGrid: document.querySelector("#summaryGrid"),
+  standingsHeading: document.querySelector("#standingsHeading"),
+  matchesHeading: document.querySelector("#matchesHeading"),
   standingsTable: document.querySelector("#standingsTable"),
   matchList: document.querySelector("#matchList"),
+  scopeButtons: document.querySelectorAll("[data-scope]"),
 };
 
 let currentState = loadLocalState();
-
-render(currentState, {
+let currentSource = {
   label: "ローカル保存",
   detail: currentState.matches.length ? "この端末の保存済み半荘を表示しています" : "保存済み半荘はまだありません",
-});
+};
+let currentScope = "overall";
+
+render(currentState, currentSource);
 
 elements.importButton.addEventListener("click", () => {
   elements.importFile.click();
@@ -25,6 +31,12 @@ elements.importButton.addEventListener("click", () => {
 
 elements.importFile.addEventListener("change", handleImportFile);
 elements.csvButton.addEventListener("click", exportSheetCsv);
+elements.scopeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    currentScope = button.dataset.scope || "overall";
+    render(currentState, currentSource);
+  });
+});
 
 window.addEventListener("storage", (event) => {
   if (event.key !== STORAGE_KEY) {
@@ -32,10 +44,11 @@ window.addEventListener("storage", (event) => {
   }
 
   currentState = loadLocalState();
-  render(currentState, {
+  currentSource = {
     label: "ローカル保存",
     detail: "保存データが更新されました",
-  });
+  };
+  render(currentState, currentSource);
 });
 
 function loadLocalState() {
@@ -57,10 +70,11 @@ function handleImportFile(event) {
   reader.addEventListener("load", () => {
     try {
       currentState = normalizeState(JSON.parse(String(reader.result || "{}")));
-      render(currentState, {
+      currentSource = {
         label: "読込JSON",
         detail: file.name,
-      });
+      };
+      render(currentState, currentSource);
     } catch {
       window.alert("JSONを読み込めませんでした。Mahjong Ledgerの書き出しファイルを選んでください。");
     } finally {
@@ -92,26 +106,37 @@ function normalizeState(data) {
 
 function render(state, source) {
   const matches = getSortedMatches(state.matches);
-  const rows = getAggregateRows(matches);
+  const latestDayMatches = getLatestMatchDayMatches(matches);
+  const scopedMatches = currentScope === "today" ? latestDayMatches : matches;
+  const rows = getAggregateRows(scopedMatches);
   const participantCount = rows.length || countCurrentPlayers(state.players);
-  const latestMatch = matches[0] || null;
+  const latestMatch = scopedMatches[0] || matches[0] || null;
+  const dayLabel = currentScope === "today" && latestMatch ? formatDateOnly(latestMatch.finishedAt) : "";
 
   elements.sourceLabel.textContent = source.label;
   elements.sourceDetail.textContent = source.detail;
+  elements.standingsHeading.textContent = currentScope === "today" ? `当日順位${dayLabel ? ` ${dayLabel}` : ""}` : "総合順位";
+  elements.matchesHeading.textContent = currentScope === "today" ? "当日半荘" : "半荘一覧";
+  elements.scopeButtons.forEach((button) => {
+    button.setAttribute("aria-pressed", String((button.dataset.scope || "overall") === currentScope));
+  });
   elements.summaryGrid.innerHTML = renderSummaryCards({
-    matchCount: matches.length,
+    matchCount: scopedMatches.length,
     participantCount,
     latestAt: latestMatch ? latestMatch.finishedAt : state.createdAt,
     topName: rows[0] ? rows[0].name : "",
+    scopeLabel: currentScope === "today" ? "当日半荘" : "半荘数",
+    latestLabel: currentScope === "today" ? "対象日" : "最終更新",
+    latestValue: currentScope === "today" ? dayLabel : formatDate(latestMatch ? latestMatch.finishedAt : state.createdAt),
   });
-  elements.standingsTable.innerHTML = rows.length ? renderStandings(rows) : renderEmpty("保存済み半荘がありません");
-  elements.matchList.innerHTML = matches.length ? renderMatches(matches) : renderEmpty("半荘保存後にここへ反映されます");
+  elements.standingsTable.innerHTML = rows.length ? renderStandings(rows) : renderEmpty(currentScope === "today" ? "当日の半荘がありません" : "保存済み半荘がありません");
+  elements.matchList.innerHTML = scopedMatches.length ? renderMatches(scopedMatches) : renderEmpty("半荘保存後にここへ反映されます");
 }
 
 function renderSummaryCards(summary) {
   return `
     <article class="summary-card accent">
-      <span>半荘数</span>
+      <span>${escapeHtml(summary.scopeLabel || "半荘数")}</span>
       <strong>${formatNumber(summary.matchCount)}</strong>
     </article>
     <article class="summary-card blue">
@@ -123,8 +148,8 @@ function renderSummaryCards(summary) {
       <strong>${escapeHtml(summary.topName || "-")}</strong>
     </article>
     <article class="summary-card">
-      <span>最終更新</span>
-      <strong>${formatDate(summary.latestAt) || "-"}</strong>
+      <span>${escapeHtml(summary.latestLabel || "最終更新")}</span>
+      <strong>${escapeHtml(summary.latestValue || formatDate(summary.latestAt) || "-")}</strong>
     </article>
   `;
 }
@@ -135,6 +160,8 @@ function renderStandings(rows) {
       <span>順位</span>
       <span>名前</span>
       <span>半荘</span>
+      <span>合計スコア</span>
+      <span>平均スコア</span>
       <span>平均順位</span>
       <span>トップ</span>
       <span>トビ</span>
@@ -150,12 +177,14 @@ function renderStandings(rows) {
 
   const body = rows
     .map((row, index) => {
-      const scoreClass = row.totalScoreDiff > 0 ? "plus" : row.totalScoreDiff < 0 ? "minus" : "";
+      const scoreClass = row.totalLeagueScore > 0 ? "plus" : row.totalLeagueScore < 0 ? "minus" : "";
       return `
         <article class="standing-row">
           <span class="rank">${index + 1}</span>
           <strong class="player-name">${escapeHtml(row.name)}</strong>
           <span>${row.games}</span>
+          <span class="${scoreClass}">${formatSigned(row.totalLeagueScore)}</span>
+          <span>${row.averageLeagueScore.toFixed(2)}</span>
           <span>${row.averageRank.toFixed(2)}</span>
           <span>${formatRate(row.topRate)}</span>
           <span>${formatRate(row.tobiRate)}</span>
@@ -184,12 +213,17 @@ function renderMatches(matches) {
       const busted = formatPlayersByIds(match.players || [], match.bustedIds || []);
       const playerScores = players
         .map(
-          (player) => `
-            <span>
-              <b>${player.rank}位 ${escapeHtml(player.name)}</b>
-              ${formatNumber(player.score)}
-            </span>
-          `
+          (player) => {
+            const leagueScore = getPlayerLeagueScore(player, match);
+            const scoreClass = leagueScore > 0 ? "plus" : leagueScore < 0 ? "minus" : "";
+            return `
+              <span>
+                <b>${player.rank}位 ${escapeHtml(player.name)}</b>
+                <strong class="${scoreClass}">${formatSigned(leagueScore)}</strong>
+                <small>${formatNumber(player.score)}点 / ウマ ${formatSigned(getPlayerUma(player, match))}</small>
+              </span>
+            `;
+          }
         )
         .join("");
 
@@ -201,7 +235,7 @@ function renderMatches(matches) {
           </div>
           <div class="match-meta">
             <span>${escapeHtml(match.endReason || "保存済み")}</span>
-            ${top ? `<span>トップ ${escapeHtml(top.name)} ${formatNumber(top.score)}</span>` : ""}
+            ${top ? `<span>トップ ${escapeHtml(top.name)} ${formatSigned(getPlayerLeagueScore(top, match))}</span>` : ""}
             ${busted ? `<span>トビ ${escapeHtml(busted)}</span>` : ""}
             ${tobashi ? `<span>トバし ${escapeHtml(tobashi)}</span>` : ""}
           </div>
@@ -221,12 +255,14 @@ function buildSheetCsv(matches) {
   const aggregateRows = getAggregateRows(matches);
 
   rows.push(["総合成績"]);
-  rows.push(["順位", "名前", "半荘", "平均順位", "トップ率", "トビ率", "トバし率", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
+  rows.push(["順位", "名前", "半荘", "合計スコア", "平均スコア", "平均順位", "トップ率", "トビ率", "トバし率", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
   aggregateRows.forEach((row, index) => {
     rows.push([
       index + 1,
       row.name,
       row.games,
+      row.totalLeagueScore,
+      row.averageLeagueScore.toFixed(2),
       row.averageRank.toFixed(2),
       formatRate(row.topRate),
       formatRate(row.tobiRate),
@@ -242,7 +278,7 @@ function buildSheetCsv(matches) {
 
   rows.push([]);
   rows.push(["半荘明細"]);
-  rows.push(["半荘", "終了日時", "終了理由", "順位", "名前", "点数", "点数差", "トビ", "トバし"]);
+  rows.push(["半荘", "終了日時", "終了理由", "順位", "名前", "点数", "点数差", "素点丸め", "ウマ", "半荘スコア", "トビ", "トバし"]);
   matches.forEach((match) => {
     getPlayersWithRanks(match).forEach((player) => {
       rows.push([
@@ -253,6 +289,9 @@ function buildSheetCsv(matches) {
         player.name,
         Number(player.score || 0),
         getScoreDiff(player),
+        getPlayerRoundedScore(player),
+        getPlayerUma(player, match),
+        getPlayerLeagueScore(player, match),
         Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : "",
         Number((match.tobashiShares && match.tobashiShares[player.id]) || 0) || "",
       ]);
@@ -273,6 +312,16 @@ function getSortedMatches(matches) {
   });
 }
 
+function getLatestMatchDayMatches(matches) {
+  const latest = matches[0] || null;
+  const latestKey = latest ? getLocalDateKey(latest.finishedAt) : "";
+  if (!latestKey) {
+    return [];
+  }
+
+  return matches.filter((match) => getLocalDateKey(match.finishedAt) === latestKey);
+}
+
 function getAggregateRows(matches) {
   const rows = new Map();
 
@@ -288,6 +337,7 @@ function getAggregateRows(matches) {
         topCount: 0,
         tobiCount: 0,
         tobashiCredit: 0,
+        leagueScoreTotal: 0,
         scoreTotal: 0,
         totalScoreDiff: 0,
         hands: 0,
@@ -302,6 +352,7 @@ function getAggregateRows(matches) {
       row.topCount += rank === 1 ? 1 : 0;
       row.tobiCount += Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : 0;
       row.tobashiCredit += Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+      row.leagueScoreTotal += getPlayerLeagueScore({ ...player, rank }, match);
       row.scoreTotal += Number(player.score || 0);
       row.totalScoreDiff += getScoreDiff(player);
       row.hands += Number(player.hands || 0);
@@ -320,13 +371,15 @@ function getAggregateRows(matches) {
       topRate: row.games ? (row.topCount / row.games) * 100 : 0,
       tobiRate: row.games ? (row.tobiCount / row.games) * 100 : 0,
       tobashiRate: row.games ? (row.tobashiCredit / row.games) * 100 : 0,
+      totalLeagueScore: row.leagueScoreTotal,
+      averageLeagueScore: row.games ? row.leagueScoreTotal / row.games : 0,
       averageScore: row.games ? row.scoreTotal / row.games : 0,
       callRate: row.hands ? (row.calls / row.hands) * 100 : 0,
       riichiRate: row.hands ? (row.riichi / row.hands) * 100 : 0,
       winRate: row.hands ? (row.wins / row.hands) * 100 : 0,
       dealInRate: row.hands ? (row.dealIns / row.hands) * 100 : 0,
     }))
-    .sort((a, b) => a.averageRank - b.averageRank || b.totalScoreDiff - a.totalScoreDiff || b.averageScore - a.averageScore);
+    .sort((a, b) => b.totalLeagueScore - a.totalLeagueScore || a.averageRank - b.averageRank || b.totalScoreDiff - a.totalScoreDiff || b.averageScore - a.averageScore);
 }
 
 function getPlayersWithRanks(match) {
@@ -351,6 +404,53 @@ function getScoreDiff(player) {
   }
 
   return Number(player.score || 0) - STARTING_SCORE;
+}
+
+function getPlayerRoundedScore(player) {
+  const roundedScore = Number(player.roundedScore);
+  if (Number.isFinite(roundedScore)) {
+    return roundedScore;
+  }
+
+  return roundHundredsFiveDownSixUp(getScoreDiff(player));
+}
+
+function getPlayerUma(player, match) {
+  const storedUma = Number(player.uma);
+  if (Number.isFinite(storedUma)) {
+    return storedUma;
+  }
+
+  const rank = Number(player.rank || getRanksForPlayers(match.players || []).get(player.id) || 4);
+  return getUmaForRank(rank, match.settings || currentState.settings || {});
+}
+
+function getPlayerLeagueScore(player, match) {
+  const leagueScore = Number(player.leagueScore);
+  if (Number.isFinite(leagueScore)) {
+    return leagueScore;
+  }
+
+  return getPlayerRoundedScore(player) + getPlayerUma(player, match);
+}
+
+function getUmaForRank(rank, settings) {
+  const key = `umaRank${rank}`;
+  const value = Number(settings && settings[key]);
+  if (Number.isFinite(value)) {
+    return value;
+  }
+
+  return DEFAULT_UMA[rank - 1] || 0;
+}
+
+function roundHundredsFiveDownSixUp(value) {
+  const number = Number(value || 0);
+  const sign = number < 0 ? -1 : 1;
+  const abs = Math.abs(number);
+  const thousands = Math.trunc(abs / 1000);
+  const hundreds = Math.trunc((abs % 1000) / 100);
+  return sign * (thousands + (hundreds >= 6 ? 1 : 0));
 }
 
 function formatTobashiPlayers(match) {
@@ -419,6 +519,32 @@ function formatDate(value) {
   }
 
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatDateOnly(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function getLocalDateKey(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function formatNumber(value) {

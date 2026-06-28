@@ -246,6 +246,23 @@ h2 {
   padding: 14px;
 }
 
+.scope-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  gap: 8px;
+}
+
+.scope-tabs button {
+  min-height: 38px;
+  font-weight: 900;
+}
+
+.scope-tabs button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .section-title {
   justify-content: space-between;
   gap: 12px;
@@ -264,9 +281,9 @@ h2 {
 
 .standing-row {
   display: grid;
-  grid-template-columns: 48px minmax(128px, 1.2fr) repeat(11, minmax(76px, 0.8fr));
+  grid-template-columns: 48px minmax(128px, 1.2fr) repeat(13, minmax(76px, 0.8fr));
   align-items: center;
-  min-width: 1080px;
+  min-width: 1240px;
   min-height: 52px;
   gap: 8px;
   padding: 9px 10px;
@@ -373,6 +390,16 @@ h2 {
   margin-right: 4px;
 }
 
+.score-strip strong {
+  margin-right: 4px;
+}
+
+.score-strip small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .empty-state {
   min-height: 86px;
   display: grid;
@@ -413,6 +440,10 @@ h2 {
 
   .status-band span {
     text-align: left;
+  }
+
+  .scope-tabs {
+    width: 100%;
   }
 
   .summary-grid {

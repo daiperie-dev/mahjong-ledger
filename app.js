@@ -7,6 +7,7 @@ const HONBA_TSUMO_POINTS = 100;
 const RIICHI_STICK_POINTS = 1000;
 const SCORE_PRESETS = [2000, 2600, 3900, 5800, 8000, 12000];
 const WIND_LABELS = ["東", "南", "西", "北"];
+const DEFAULT_UMA = [20, 10, -10, -20];
 const SETTINGS = [
   { key: "autoRoundRules", label: "局進行・本場", type: "checkbox" },
   { key: "autoHonbaPayments", label: "本場点補正", type: "checkbox" },
@@ -26,6 +27,10 @@ const SETTINGS = [
       { value: "split", label: "分け合い" },
     ],
   },
+  { key: "umaRank1", label: "ウマ1位", type: "number", step: 1, normalize: "integer" },
+  { key: "umaRank2", label: "ウマ2位", type: "number", step: 1, normalize: "integer" },
+  { key: "umaRank3", label: "ウマ3位", type: "number", step: 1, normalize: "integer" },
+  { key: "umaRank4", label: "ウマ4位", type: "number", step: 1, normalize: "integer" },
   { key: "safetyZeroWin", label: "和了0点防止", type: "checkbox" },
   { key: "safetyRonSinglePayer", label: "ロン支払い形確認", type: "checkbox" },
   { key: "safetyScoreBalance", label: "点数差確認", type: "checkbox" },
@@ -59,11 +64,13 @@ const elements = {
   summaryStats: document.querySelector("#summaryStats"),
   matchList: document.querySelector("#matchList"),
   settingsGrid: document.querySelector("#settingsGrid"),
+  archiveScopeButtons: document.querySelectorAll("[data-archive-scope]"),
 };
 
 let state = loadState();
 let draft = createDraft(state);
 let scoreInputMode = "adjust";
+let archiveScope = "overall";
 
 applyTheme(localStorage.getItem(THEME_KEY) || "light");
 render();
@@ -105,6 +112,10 @@ function createDefaultSettings() {
     tobiEnabled: true,
     tobiThreshold: 0,
     drawTobashiMode: "kamicha",
+    umaRank1: DEFAULT_UMA[0],
+    umaRank2: DEFAULT_UMA[1],
+    umaRank3: DEFAULT_UMA[2],
+    umaRank4: DEFAULT_UMA[3],
     safetyZeroWin: true,
     safetyRonSinglePayer: true,
     safetyScoreBalance: true,
@@ -189,6 +200,12 @@ function bindEvents() {
   elements.importButton.addEventListener("click", () => elements.importFile.click());
   elements.importFile.addEventListener("change", importStateFile);
   elements.themeToggle.addEventListener("click", toggleTheme);
+  elements.archiveScopeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      archiveScope = button.dataset.archiveScope || "overall";
+      render();
+    });
+  });
 }
 
 function handleClick(event) {
@@ -278,12 +295,13 @@ function handleChange(event) {
 
   if (target.matches("[data-setting]")) {
     const key = target.dataset.setting;
+    const setting = SETTINGS.find((item) => item.key === key);
     if (target.type === "checkbox") {
       state.settings[key] = target.checked;
     } else if (target.tagName === "SELECT") {
       state.settings[key] = target.value;
     } else {
-      state.settings[key] = normalizeSettingNumber(target.value);
+      state.settings[key] = normalizeSettingValue(setting, target.value);
     }
     saveState();
     render();
@@ -519,18 +537,25 @@ function renderHistory() {
 }
 
 function renderSummary() {
-  const matches = state.matches || [];
+  const matches = getSortedMatches(state.matches || []);
+  const scopedMatches = archiveScope === "today" ? getLatestMatchDayMatches(matches) : matches;
+  elements.archiveScopeButtons.forEach((button) => {
+    button.setAttribute("aria-pressed", String((button.dataset.archiveScope || "overall") === archiveScope));
+  });
+
   if (matches.length === 0) {
     elements.summaryStats.innerHTML = `<div class="history-empty">保存済み半荘はまだありません</div>`;
     elements.matchList.innerHTML = "";
     return;
   }
 
-  const rows = getAggregateRows(matches);
+  const rows = getAggregateRows(scopedMatches);
+  const latestMatch = scopedMatches[0] || matches[0] || null;
+  const dayLabel = archiveScope === "today" && latestMatch ? formatDateOnly(latestMatch.finishedAt) : "";
   elements.summaryStats.innerHTML = `
     <div class="summary-cards">
-      <div class="summary-card"><span>半荘数</span><strong>${matches.length}</strong></div>
-      <div class="summary-card"><span>最新</span><strong>${escapeHtml(matches[0].endReason || "保存")}</strong></div>
+      <div class="summary-card"><span>${archiveScope === "today" ? "当日半荘" : "半荘数"}</span><strong>${scopedMatches.length}</strong></div>
+      <div class="summary-card"><span>${archiveScope === "today" ? "対象日" : "最新"}</span><strong>${escapeHtml(archiveScope === "today" ? dayLabel : (latestMatch.endReason || "保存"))}</strong></div>
     </div>
     <div class="summary-table">
       ${rows
@@ -543,6 +568,7 @@ function renderSummary() {
               <span>トップ${row.topRate.toFixed(1)}%</span>
               <span>トビ${row.tobiRate.toFixed(1)}%</span>
               <span>トバし${row.tobashiRate.toFixed(1)}%</span>
+              <span>スコア${formatSigned(row.totalLeagueScore)}</span>
               <span>${formatNumber(Math.round(row.averageScore))}点</span>
             </div>
           `
@@ -551,18 +577,23 @@ function renderSummary() {
     </div>
   `;
 
-  elements.matchList.innerHTML = matches
+  elements.matchList.innerHTML = scopedMatches
     .slice(0, 6)
     .map((match) => {
-      const top = [...match.players].sort((a, b) => b.score - a.score)[0];
+      const players = getPlayersWithRanks(match);
+      const top = players[0] || null;
       const finishedAt = formatDateTime(match.finishedAt);
       const tobashi = formatTobashiPlayers(match);
+      const scores = players
+        .map((player) => `${player.rank}位 ${player.name} ${formatSigned(getPlayerLeagueScore(player, match))}`)
+        .join(" / ");
       return `
         <article class="match-item">
           <strong>${escapeHtml(match.label || `半荘${match.number || ""}`)}</strong>
           <span>${escapeHtml(match.endReason || "保存")} / ${finishedAt}</span>
           ${tobashi ? `<span>トバし: ${escapeHtml(tobashi)}</span>` : ""}
           <small>トップ: ${escapeHtml(top ? top.name : "")} ${top ? formatNumber(top.score) : ""}</small>
+          <small>スコア: ${escapeHtml(scores)}</small>
         </article>
       `;
     })
@@ -573,10 +604,11 @@ function renderSettings() {
   elements.settingsGrid.innerHTML = SETTINGS.map((setting) => {
     const value = state.settings[setting.key];
     if (setting.type === "number") {
+      const step = setting.step || 100;
       return `
         <label class="setting-item">
           <span>${setting.label}</span>
-          <input type="number" step="100" data-setting="${setting.key}" value="${Number(value || 0)}" />
+          <input type="number" step="${step}" data-setting="${setting.key}" value="${Number(value || 0)}" />
         </label>
       `;
     }
@@ -922,11 +954,20 @@ function archiveCurrentMatch(endInfo) {
     bustedIds: info.bustedIds || [],
     tobashiIds: info.tobashiIds || [],
     tobashiShares: info.tobashiShares || {},
-    players: players.map((player) => ({
-      ...player,
-      rank: ranks.get(player.id),
-      scoreDiff: player.score - STARTING_SCORE,
-    })),
+    players: players.map((player) => {
+      const rank = ranks.get(player.id);
+      const scoreDiff = player.score - STARTING_SCORE;
+      const roundedScore = roundHundredsFiveDownSixUp(scoreDiff);
+      const uma = getUmaForRank(rank, state.settings);
+      return {
+        ...player,
+        rank,
+        scoreDiff,
+        roundedScore,
+        uma,
+        leagueScore: roundedScore + uma,
+      };
+    }),
     history: deepClone(state.history),
     settings: deepClone(state.settings),
   };
@@ -1082,15 +1123,18 @@ function importStateFile(event) {
 
 function buildSheetCsv(matches) {
   const rows = [];
-  const aggregateRows = getAggregateRows(matches);
+  const sortedMatches = getSortedMatches(matches);
+  const aggregateRows = getAggregateRows(sortedMatches);
 
   rows.push(["総合成績"]);
-  rows.push(["順位", "名前", "半荘", "平均順位", "トップ率", "トビ率", "トバし率", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
+  rows.push(["順位", "名前", "半荘", "合計スコア", "平均スコア", "平均順位", "トップ率", "トビ率", "トバし率", "平均点", "合計点差", "和了率", "放銃率", "リーチ率", "副露率"]);
   aggregateRows.forEach((row, index) => {
     rows.push([
       index + 1,
       row.name,
       row.games,
+      row.totalLeagueScore,
+      row.averageLeagueScore.toFixed(2),
       row.averageRank.toFixed(2),
       formatRateValue(row.topRate),
       formatRateValue(row.tobiRate),
@@ -1106,21 +1150,21 @@ function buildSheetCsv(matches) {
 
   rows.push([]);
   rows.push(["半荘明細"]);
-  rows.push(["半荘", "終了日時", "終了理由", "順位", "名前", "点数", "点数差", "トビ", "トバし"]);
-  matches.forEach((match) => {
-    const ranks = getRanksForPlayers(match.players || []);
-    [...(match.players || [])]
-      .sort((a, b) => Number(a.rank || ranks.get(a.id) || 4) - Number(b.rank || ranks.get(b.id) || 4))
+  rows.push(["半荘", "終了日時", "終了理由", "順位", "名前", "点数", "点数差", "素点丸め", "ウマ", "半荘スコア", "トビ", "トバし"]);
+  sortedMatches.forEach((match) => {
+    getPlayersWithRanks(match)
       .forEach((player) => {
-        const rank = Number(player.rank || ranks.get(player.id) || 4);
         rows.push([
           match.label || `半荘${match.number || ""}`,
           formatCsvDateTime(match.finishedAt),
           match.endReason || "保存",
-          rank,
+          player.rank,
           player.name,
           Number(player.score || 0),
           getPlayerScoreDiff(player),
+          getPlayerRoundedScore(player),
+          getPlayerUma(player, match),
+          getPlayerLeagueScore(player, match),
           Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : "",
           Number((match.tobashiShares && match.tobashiShares[player.id]) || 0) || "",
         ]);
@@ -1160,11 +1204,46 @@ function getRanksForPlayers(players) {
   return new Map(sorted.map((player, index) => [player.id, index + 1]));
 }
 
+function getSortedMatches(matches) {
+  return [...matches].sort((a, b) => {
+    const timeA = Date.parse(a.finishedAt || "");
+    const timeB = Date.parse(b.finishedAt || "");
+    if (Number.isFinite(timeA) && Number.isFinite(timeB) && timeA !== timeB) {
+      return timeB - timeA;
+    }
+    return Number(b.number || 0) - Number(a.number || 0);
+  });
+}
+
+function getLatestMatchDayMatches(matches) {
+  const latest = matches[0] || null;
+  const latestKey = latest ? getLocalDateKey(latest.finishedAt) : "";
+  if (!latestKey) {
+    return [];
+  }
+
+  return matches.filter((match) => getLocalDateKey(match.finishedAt) === latestKey);
+}
+
+function getPlayersWithRanks(match) {
+  const players = match.players || [];
+  const ranks = getRanksForPlayers(players);
+  return players
+    .map((player) => ({
+      ...player,
+      rank: Number(player.rank || ranks.get(player.id) || 4),
+      score: Number(player.score || 0),
+    }))
+    .sort((a, b) => a.rank - b.rank || b.score - a.score);
+}
+
 function getAggregateRows(matches) {
   const rows = new Map();
 
   matches.forEach((match) => {
-    match.players.forEach((player) => {
+    const ranks = getRanksForPlayers(match.players || []);
+    (match.players || []).forEach((player) => {
+      const rank = Number(player.rank || ranks.get(player.id) || 4);
       const key = player.name;
       const row = rows.get(key) || {
         name: player.name,
@@ -1173,6 +1252,7 @@ function getAggregateRows(matches) {
         topCount: 0,
         tobiCount: 0,
         tobashiCredit: 0,
+        leagueScoreTotal: 0,
         scoreTotal: 0,
         scoreDiffTotal: 0,
         hands: 0,
@@ -1182,10 +1262,11 @@ function getAggregateRows(matches) {
         dealIns: 0,
       };
       row.games += 1;
-      row.rankTotal += player.rank || 4;
-      row.topCount += player.rank === 1 ? 1 : 0;
+      row.rankTotal += rank;
+      row.topCount += rank === 1 ? 1 : 0;
       row.tobiCount += Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : 0;
       row.tobashiCredit += Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+      row.leagueScoreTotal += getPlayerLeagueScore({ ...player, rank }, match);
       row.scoreTotal += player.score;
       row.scoreDiffTotal += getPlayerScoreDiff(player);
       row.hands += Number(player.hands || 0);
@@ -1204,6 +1285,8 @@ function getAggregateRows(matches) {
       topRate: row.games ? (row.topCount / row.games) * 100 : 0,
       tobiRate: row.games ? (row.tobiCount / row.games) * 100 : 0,
       tobashiRate: row.games ? (row.tobashiCredit / row.games) * 100 : 0,
+      totalLeagueScore: row.leagueScoreTotal,
+      averageLeagueScore: row.games ? row.leagueScoreTotal / row.games : 0,
       averageScore: row.games ? row.scoreTotal / row.games : 0,
       totalScoreDiff: row.scoreDiffTotal,
       callRate: row.hands ? (row.calls / row.hands) * 100 : 0,
@@ -1211,7 +1294,7 @@ function getAggregateRows(matches) {
       winRate: row.hands ? (row.wins / row.hands) * 100 : 0,
       dealInRate: row.hands ? (row.dealIns / row.hands) * 100 : 0,
     }))
-    .sort((a, b) => a.averageRank - b.averageRank || b.averageScore - a.averageScore);
+    .sort((a, b) => b.totalLeagueScore - a.totalLeagueScore || a.averageRank - b.averageRank || b.averageScore - a.averageScore);
 }
 
 function formatTobashiPlayers(match) {
@@ -1240,6 +1323,53 @@ function getPlayerScoreDiff(player) {
   }
 
   return Number(player.score || 0) - STARTING_SCORE;
+}
+
+function getPlayerRoundedScore(player) {
+  const roundedScore = Number(player.roundedScore);
+  if (Number.isFinite(roundedScore)) {
+    return roundedScore;
+  }
+
+  return roundHundredsFiveDownSixUp(getPlayerScoreDiff(player));
+}
+
+function getPlayerUma(player, match) {
+  const storedUma = Number(player.uma);
+  if (Number.isFinite(storedUma)) {
+    return storedUma;
+  }
+
+  const rank = Number(player.rank || getRanksForPlayers(match.players || []).get(player.id) || 4);
+  return getUmaForRank(rank, match.settings || state.settings || {});
+}
+
+function getPlayerLeagueScore(player, match) {
+  const leagueScore = Number(player.leagueScore);
+  if (Number.isFinite(leagueScore)) {
+    return leagueScore;
+  }
+
+  return getPlayerRoundedScore(player) + getPlayerUma(player, match);
+}
+
+function getUmaForRank(rank, settings) {
+  const key = `umaRank${rank}`;
+  const value = Number(settings && settings[key]);
+  if (Number.isFinite(value)) {
+    return value;
+  }
+
+  return DEFAULT_UMA[rank - 1] || 0;
+}
+
+function roundHundredsFiveDownSixUp(value) {
+  const number = Number(value || 0);
+  const sign = number < 0 ? -1 : 1;
+  const abs = Math.abs(number);
+  const thousands = Math.trunc(abs / 1000);
+  const hundreds = Math.trunc((abs % 1000) / 100);
+  return sign * (thousands + (hundreds >= 6 ? 1 : 0));
 }
 
 function toCsvRow(row) {
@@ -1311,6 +1441,15 @@ function getSetting(key) {
 function normalizeSettingNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.round(number / 100) * 100 : 0;
+}
+
+function normalizeSettingValue(setting, value) {
+  if (setting && setting.normalize === "integer") {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.round(number) : 0;
+  }
+
+  return normalizeSettingNumber(value);
 }
 
 function isWinningResult() {
@@ -1542,6 +1681,32 @@ function formatCsvDateTime(value) {
   }
 
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatDateOnly(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function getLocalDateKey(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function makeId(prefix) {
