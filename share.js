@@ -575,7 +575,6 @@ function renderMatchLedger(matches) {
             <th rowspan="2">半荘</th>
             <th rowspan="2">保存日時</th>
             ${sheetPlayers.map((player) => `<th colspan="${columns.length}">${escapeHtml(player.name)}</th>`).join("")}
-            <th rowspan="2">トータル</th>
           </tr>
           <tr>
             ${sheetPlayers.map(() => columns.map((column) => `<th>${column.label}</th>`).join("")).join("")}
@@ -588,19 +587,16 @@ function renderMatchLedger(matches) {
                 <th>${escapeHtml(match.label || `半荘${match.number || ""}`)}</th>
                 <td>${escapeHtml(formatDate(match.finishedAt))}</td>
                 ${sheetPlayers.map((player) => renderMatchLedgerPlayerCells(match, player.key, columns)).join("")}
-                ${renderMatchTotalCell(match)}
               </tr>
             `)
             .join("")}
         </tbody>
+        <tfoot>
+          ${renderMatchLedgerTotalRow(chronological, sheetPlayers, columns)}
+        </tfoot>
       </table>
     </div>
   `;
-}
-
-function renderMatchTotalCell(match) {
-  const total = getMatchLeagueScoreTotal(match);
-  return `<td class="${toneClass(total)}">${formatSigned(total)}</td>`;
 }
 
 function renderMatchLedgerPlayerCells(match, playerKey, columns = getLedgerColumns()) {
@@ -617,6 +613,39 @@ function renderMatchLedgerPlayerCells(match, playerKey, columns = getLedgerColum
     .join("");
 }
 
+function renderMatchLedgerTotalRow(matches, sheetPlayers, columns = getLedgerColumns()) {
+  const totals = getMatchLedgerPlayerTotals(matches, sheetPlayers);
+  return `
+    <tr>
+      <th>トータル</th>
+      <td>${matches.length}半荘</td>
+      ${sheetPlayers
+        .map((player) => {
+          const total = totals.get(player.key);
+          return columns.map((column) => renderMatchLedgerTotalCell(column.key, total)).join("");
+        })
+        .join("")}
+    </tr>
+  `;
+}
+
+function renderMatchLedgerTotalCell(columnKey, total) {
+  if (!total) {
+    return `<td></td>`;
+  }
+
+  switch (columnKey) {
+    case "rank":
+      return `<td>${total.rank || ""}</td>`;
+    case "chip":
+      return `<td class="${toneClass(total.chip)}">${formatSigned(total.chip)}</td>`;
+    case "leagueScore":
+      return `<td class="${toneClass(total.score)}">${formatSigned(total.score)}</td>`;
+    default:
+      return `<td></td>`;
+  }
+}
+
 function getMatchLedgerCsvCells(match, playerKey, columns = getLedgerColumns()) {
   const player = findMatchLedgerPlayer(match, playerKey);
   if (!player) {
@@ -624,6 +653,52 @@ function getMatchLedgerCsvCells(match, playerKey, columns = getLedgerColumns()) 
   }
 
   return columns.map((column) => getMatchLedgerCell(column.key, player, match).csv);
+}
+
+function getMatchLedgerTotalCsvCells(total, columns = getLedgerColumns()) {
+  if (!total) {
+    return Array(columns.length).fill("");
+  }
+
+  return columns.map((column) => {
+    switch (column.key) {
+      case "rank":
+        return total.rank || "";
+      case "chip":
+        return formatSigned(total.chip);
+      case "leagueScore":
+        return formatSigned(total.score);
+      default:
+        return "";
+    }
+  });
+}
+
+function getMatchLedgerPlayerTotals(matches, sheetPlayers) {
+  const totals = new Map();
+  sheetPlayers.forEach((player) => {
+    totals.set(player.key, { key: player.key, name: player.name, score: 0, chip: 0, rank: "" });
+  });
+
+  matches.forEach((match) => {
+    sheetPlayers.forEach((sheetPlayer) => {
+      const player = findMatchLedgerPlayer(match, sheetPlayer.key);
+      if (!player) {
+        return;
+      }
+
+      const total = totals.get(sheetPlayer.key);
+      total.score += getPlayerLeagueScore(player, match);
+      total.chip += getPlayerChipDiff(player);
+    });
+  });
+
+  const rankedTotals = Array.from(totals.values()).sort((a, b) => b.score - a.score || b.chip - a.chip || a.name.localeCompare(b.name, "ja"));
+  rankedTotals.forEach((total, index) => {
+    total.rank = index + 1;
+  });
+
+  return totals;
 }
 
 function getMatchLedgerCell(columnKey, player, match) {
@@ -937,7 +1012,6 @@ function buildSheetCsv(matches) {
     "保存日時",
     "終了理由",
     ...sheetPlayers.flatMap((player) => matchColumns.map((column) => `${player.name} ${column.label}`)),
-    "トータル",
   ]);
   sortedMatches.reverse().forEach((match) => {
     rows.push([
@@ -945,9 +1019,15 @@ function buildSheetCsv(matches) {
       formatDate(match.finishedAt),
       match.endReason || "保存済み",
       ...sheetPlayers.flatMap((sheetPlayer) => getMatchLedgerCsvCells(match, sheetPlayer.key, matchColumns)),
-      formatSigned(getMatchLeagueScoreTotal(match)),
     ]);
   });
+  const ledgerTotals = getMatchLedgerPlayerTotals(sortedMatches, sheetPlayers);
+  rows.push([
+    "トータル",
+    `${sortedMatches.length}半荘`,
+    "",
+    ...sheetPlayers.flatMap((sheetPlayer) => getMatchLedgerTotalCsvCells(ledgerTotals.get(sheetPlayer.key), matchColumns)),
+  ]);
 
   rows.push([]);
   rows.push(["集計"]);

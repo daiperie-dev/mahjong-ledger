@@ -503,6 +503,12 @@ h2 {
   background: var(--surface-strong);
 }
 
+.ledger-table tfoot th,
+.ledger-table tfoot td {
+  background: var(--accent-soft);
+  font-weight: 900;
+}
+
 .metric-ledger {
   min-width: 560px;
 }

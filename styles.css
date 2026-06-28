@@ -947,6 +947,78 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   margin: 10px 0 12px;
 }
 
+.chip-panel {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+}
+
+.chip-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.chip-panel-head strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.winner-chip-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 8px;
+}
+
+.winner-chip-input > span {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.chip-preview span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-weight: 900;
+}
+
+.chip-preview b {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chip-row {
   display: grid;
   grid-template-columns: minmax(78px, 0.8fr) minmax(82px, 0.7fr) minmax(70px, 0.55fr) 188px;
@@ -1201,6 +1273,12 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   left: 0;
   z-index: 1;
   background: var(--surface-strong);
+}
+
+.ledger-table tfoot th,
+.ledger-table tfoot td {
+  background: var(--accent-soft);
+  font-weight: 900;
 }
 
 .metric-ledger {
@@ -1605,6 +1683,11 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
 
   .chip-row {
     grid-template-columns: minmax(70px, 0.75fr) minmax(82px, 1fr);
+  }
+
+  .winner-chip-input,
+  .chip-preview {
+    grid-template-columns: 1fr;
   }
 
   .delta-buttons {

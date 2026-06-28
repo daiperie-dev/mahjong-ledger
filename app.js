@@ -187,6 +187,7 @@ function createDraft(sourceState) {
     actions: createActionMap(sourceState.players),
     deltas: createDeltaMap(sourceState.players),
     chipDeltas: createDeltaMap(sourceState.players),
+    winnerChipGain: 0,
     scoreHan: "",
     scoreFu: 30,
     winScore: 0,
@@ -340,6 +341,7 @@ function handleClick(event) {
     draft.result = target.dataset.result;
     ensureRonLoser();
     applyWinScoreDeltas();
+    applyChipDeltas();
     render();
   }
 
@@ -349,16 +351,6 @@ function handleClick(event) {
     if (key === "riichi" && draft.actions[playerId].riichi) {
       draft.actions[playerId].tenpai = true;
     }
-    render();
-  }
-
-  if (action === "chip-step") {
-    draft.chipDeltas[playerId] = normalizeChip((draft.chipDeltas[playerId] || 0) + value);
-    render();
-  }
-
-  if (action === "chip-clear") {
-    draft.chipDeltas[playerId] = 0;
     render();
   }
 
@@ -395,12 +387,14 @@ function handleChange(event) {
     draft.winnerId = target.value;
     ensureRonLoser();
     applyWinScoreDeltas();
+    applyChipDeltas();
     render();
   }
 
   if (target === elements.loserSelect) {
     draft.loserId = target.value;
     applyWinScoreDeltas();
+    applyChipDeltas();
     render();
   }
 
@@ -414,8 +408,9 @@ function handleChange(event) {
     render();
   }
 
-  if (target.matches("[data-chip-input]")) {
-    draft.chipDeltas[target.dataset.chipInput] = normalizeChip(Number(target.value || 0));
+  if (target.matches("[data-winner-chip-gain]")) {
+    draft.winnerChipGain = normalizeChipGain(Number(target.value || 0));
+    applyChipDeltas();
     render();
   }
 
@@ -452,6 +447,11 @@ function handleInput(event) {
 
   if (target === elements.memoInput) {
     draft.memo = target.value;
+  }
+
+  if (target.matches("[data-winner-chip-gain]")) {
+    draft.winnerChipGain = normalizeChipGain(Number(target.value || 0));
+    applyChipDeltas();
   }
 
   if (target.matches("[data-share-config]")) {
@@ -708,52 +708,59 @@ function renderScorePreviewItems() {
 }
 
 function renderChipDeltas() {
-  elements.chipGrid.innerHTML = state.players
-    .map((player) => {
-      const value = draft.chipDeltas[player.id] || 0;
-      const currentChips = Number(player.chips ?? STARTING_CHIPS);
-      const wind = getPlayerWindMeta(player);
+  applyChipDeltas();
 
-      return `
-        <div class="chip-row">
-          <span class="chip-name">
-            <span class="mini-wind ${wind.isDealer ? "dealer" : ""}">${wind.shortLabel}</span>
-            ${escapeHtml(player.name)}
-          </span>
-          <span class="chip-current">所持 ${formatNumber(currentChips)}枚</span>
-          <input
-            class="chip-input"
-            type="number"
-            inputmode="numeric"
-            step="1"
-            data-chip-input="${player.id}"
-            value="${value}"
-            aria-label="${escapeHtml(player.name)}のチップ差"
-          />
-          <div class="chip-buttons">
-            ${chipButtonTemplate(player.id, -5)}
-            ${chipButtonTemplate(player.id, -1)}
-            ${chipButtonTemplate(player.id, 1)}
-            ${chipButtonTemplate(player.id, 5)}
-            <button class="chip-button clear" type="button" data-action="chip-clear" data-player-id="${player.id}">0</button>
-          </div>
+  if (!isWinningResult()) {
+    elements.chipGrid.innerHTML = `
+      <div class="chip-panel">
+        <div class="chip-panel-head">
+          <strong>チップ</strong>
+          <span>流局はチップなし</span>
         </div>
+      </div>
+    `;
+    return;
+  }
+
+  const winner = state.players.find((player) => player.id === draft.winnerId) || state.players[0];
+  const winnerWind = winner ? getPlayerWindMeta(winner) : { shortLabel: "", isDealer: false };
+  const chipRows = state.players
+    .map((player) => {
+      const delta = Number(draft.chipDeltas[player.id] || 0);
+      const wind = getPlayerWindMeta(player);
+      return `
+        <span class="${toneClass(delta)}">
+          <b><span class="mini-wind ${wind.isDealer ? "dealer" : ""}">${wind.shortLabel}</span>${escapeHtml(player.name)}</b>
+          ${formatSigned(delta)}
+        </span>
       `;
     })
     .join("");
-}
 
-function chipButtonTemplate(playerId, value) {
-  const tone = value < 0 ? "negative" : "positive";
-  const label = `${value < 0 ? "−" : "＋"}${Math.abs(value)}`;
-  return `
-    <button
-      class="chip-button ${tone}"
-      type="button"
-      data-action="chip-step"
-      data-player-id="${playerId}"
-      data-value="${value}"
-    >${label}</button>
+  elements.chipGrid.innerHTML = `
+    <div class="chip-panel">
+      <div class="chip-panel-head">
+        <strong>チップ</strong>
+        <span>${draft.result === "tsumo" ? "ツモは3人で等分" : "ロンは放銃者から支払い"}</span>
+      </div>
+      <label class="winner-chip-input">
+        <span>
+          <span class="mini-wind ${winnerWind.isDealer ? "dealer" : ""}">${winnerWind.shortLabel}</span>
+          ${escapeHtml(winner ? winner.name : "和了者")}の獲得枚数
+        </span>
+        <input
+          class="chip-input"
+          type="number"
+          inputmode="decimal"
+          step="1"
+          min="0"
+          data-winner-chip-gain
+          value="${formatChipInputValue(draft.winnerChipGain)}"
+          aria-label="和了者の獲得チップ枚数"
+        />
+      </label>
+      <div class="chip-preview">${chipRows}</div>
+    </div>
   `;
 }
 
@@ -927,7 +934,6 @@ function renderMatchLedger(matches) {
             <th rowspan="2">半荘</th>
             <th rowspan="2">保存日時</th>
             ${sheetPlayers.map((player) => `<th colspan="${columns.length}">${escapeHtml(player.name)}</th>`).join("")}
-            <th rowspan="2">トータル</th>
           </tr>
           <tr>
             ${sheetPlayers.map(() => columns.map((column) => `<th>${column.label}</th>`).join("")).join("")}
@@ -940,19 +946,16 @@ function renderMatchLedger(matches) {
                 <th>${escapeHtml(match.label || `半荘${match.number || ""}`)}</th>
                 <td>${escapeHtml(formatDateTime(match.finishedAt))}</td>
                 ${sheetPlayers.map((player) => renderMatchLedgerPlayerCells(match, player.key, columns)).join("")}
-                ${renderMatchTotalCell(match)}
               </tr>
             `)
             .join("")}
         </tbody>
+        <tfoot>
+          ${renderMatchLedgerTotalRow(chronological, sheetPlayers, columns)}
+        </tfoot>
       </table>
     </div>
   `;
-}
-
-function renderMatchTotalCell(match) {
-  const total = getMatchLeagueScoreTotal(match);
-  return `<td class="${toneClass(total)}">${formatSigned(total)}</td>`;
 }
 
 function renderMatchLedgerPlayerCells(match, playerKey, columns = getLedgerColumns()) {
@@ -969,6 +972,39 @@ function renderMatchLedgerPlayerCells(match, playerKey, columns = getLedgerColum
     .join("");
 }
 
+function renderMatchLedgerTotalRow(matches, sheetPlayers, columns = getLedgerColumns()) {
+  const totals = getMatchLedgerPlayerTotals(matches, sheetPlayers);
+  return `
+    <tr>
+      <th>トータル</th>
+      <td>${matches.length}半荘</td>
+      ${sheetPlayers
+        .map((player) => {
+          const total = totals.get(player.key);
+          return columns.map((column) => renderMatchLedgerTotalCell(column.key, total)).join("");
+        })
+        .join("")}
+    </tr>
+  `;
+}
+
+function renderMatchLedgerTotalCell(columnKey, total) {
+  if (!total) {
+    return `<td></td>`;
+  }
+
+  switch (columnKey) {
+    case "rank":
+      return `<td>${total.rank || ""}</td>`;
+    case "chip":
+      return `<td class="${toneClass(total.chip)}">${formatSigned(total.chip)}</td>`;
+    case "leagueScore":
+      return `<td class="${toneClass(total.score)}">${formatSigned(total.score)}</td>`;
+    default:
+      return `<td></td>`;
+  }
+}
+
 function getMatchLedgerCsvCells(match, playerKey, columns = getLedgerColumns()) {
   const player = findMatchLedgerPlayer(match, playerKey);
   if (!player) {
@@ -976,6 +1012,52 @@ function getMatchLedgerCsvCells(match, playerKey, columns = getLedgerColumns()) 
   }
 
   return columns.map((column) => getMatchLedgerCell(column.key, player, match).csv);
+}
+
+function getMatchLedgerTotalCsvCells(total, columns = getLedgerColumns()) {
+  if (!total) {
+    return Array(columns.length).fill("");
+  }
+
+  return columns.map((column) => {
+    switch (column.key) {
+      case "rank":
+        return total.rank || "";
+      case "chip":
+        return formatSigned(total.chip);
+      case "leagueScore":
+        return formatSigned(total.score);
+      default:
+        return "";
+    }
+  });
+}
+
+function getMatchLedgerPlayerTotals(matches, sheetPlayers) {
+  const totals = new Map();
+  sheetPlayers.forEach((player) => {
+    totals.set(player.key, { key: player.key, name: player.name, score: 0, chip: 0, rank: "" });
+  });
+
+  matches.forEach((match) => {
+    sheetPlayers.forEach((sheetPlayer) => {
+      const player = findMatchLedgerPlayer(match, sheetPlayer.key);
+      if (!player) {
+        return;
+      }
+
+      const total = totals.get(sheetPlayer.key);
+      total.score += getPlayerLeagueScore(player, match);
+      total.chip += getPlayerChipDiff(player);
+    });
+  });
+
+  const rankedTotals = Array.from(totals.values()).sort((a, b) => b.score - a.score || b.chip - a.chip || a.name.localeCompare(b.name, "ja"));
+  rankedTotals.forEach((total, index) => {
+    total.rank = index + 1;
+  });
+
+  return totals;
 }
 
 function getMatchLedgerCell(columnKey, player, match) {
@@ -1489,9 +1571,11 @@ function syncDraftFromControls() {
   }
   ensureRonLoser();
   applyWinScoreDeltas();
-  document.querySelectorAll("[data-chip-input]").forEach((input) => {
-    draft.chipDeltas[input.dataset.chipInput] = normalizeChip(Number(input.value || 0));
-  });
+  const chipInput = document.querySelector("[data-winner-chip-gain]");
+  if (chipInput) {
+    draft.winnerChipGain = normalizeChipGain(Number(chipInput.value || 0));
+  }
+  applyChipDeltas();
   draft.memo = elements.memoInput.value;
   draft.advanceRound = elements.advanceRound.checked;
 }
@@ -1988,7 +2072,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=26", window.location.href);
+  const url = new URL("./share.html?v=27", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -2065,7 +2149,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=26", window.location.href);
+  const url = new URL("./share.html?v=27", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
@@ -2253,7 +2337,6 @@ function buildSheetCsv(matches) {
     "保存日時",
     "終了理由",
     ...sheetPlayers.flatMap((player) => matchColumns.map((column) => `${player.name} ${column.label}`)),
-    "トータル",
   ]);
   sortedMatches.reverse().forEach((match) => {
     rows.push([
@@ -2261,9 +2344,15 @@ function buildSheetCsv(matches) {
       formatCsvDateTime(match.finishedAt),
       match.endReason || "保存済み",
       ...sheetPlayers.flatMap((sheetPlayer) => getMatchLedgerCsvCells(match, sheetPlayer.key, matchColumns)),
-      formatSigned(getMatchLeagueScoreTotal(match)),
     ]);
   });
+  const ledgerTotals = getMatchLedgerPlayerTotals(sortedMatches, sheetPlayers);
+  rows.push([
+    "トータル",
+    `${sortedMatches.length}半荘`,
+    "",
+    ...sheetPlayers.flatMap((sheetPlayer) => getMatchLedgerTotalCsvCells(ledgerTotals.get(sheetPlayer.key), matchColumns)),
+  ]);
 
   rows.push([]);
   rows.push(["集計"]);
@@ -2812,6 +2901,27 @@ function normalizeChip(value) {
   return Math.round(value);
 }
 
+function normalizeChipGain(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+
+  return roundChipValue(value);
+}
+
+function roundChipValue(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.round(value * 100) / 100;
+}
+
+function formatChipInputValue(value) {
+  const number = Number(value || 0);
+  return Number.isInteger(number) ? String(number) : String(roundChipValue(number));
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -2881,6 +2991,44 @@ function applyWinScoreDeltas() {
   scoreResult.payments.forEach((payment) => {
     draft.deltas[payment.playerId] = -payment.value;
     draft.deltas[winnerId] += payment.value;
+  });
+}
+
+function applyChipDeltas() {
+  draft.chipDeltas = createDeltaMap(state.players);
+  if (!isWinningResult()) {
+    return;
+  }
+
+  const gain = normalizeChipGain(draft.winnerChipGain);
+  draft.winnerChipGain = gain;
+  if (!gain || !draft.winnerId) {
+    return;
+  }
+
+  if (draft.result === "ron") {
+    ensureRonLoser();
+    if (!draft.loserId || draft.loserId === draft.winnerId) {
+      return;
+    }
+
+    draft.chipDeltas[draft.winnerId] = gain;
+    draft.chipDeltas[draft.loserId] = -gain;
+    return;
+  }
+
+  const payers = state.players.filter((player) => player.id !== draft.winnerId);
+  if (!payers.length) {
+    return;
+  }
+
+  const payment = roundChipValue(gain / payers.length);
+  let paidTotal = 0;
+  draft.chipDeltas[draft.winnerId] = gain;
+  payers.forEach((player, index) => {
+    const value = index === payers.length - 1 ? roundChipValue(gain - paidTotal) : payment;
+    paidTotal = roundChipValue(paidTotal + value);
+    draft.chipDeltas[player.id] = -value;
   });
 }
 
