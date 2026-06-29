@@ -1250,6 +1250,7 @@ function renderMatchEditItem(match) {
   const top = players[0] || null;
   const finishedAt = formatDateTime(match.finishedAt);
   const tobashi = formatTobashiPlayers(match);
+  const matchSettings = normalizeSettingsPayload(match.settings || state.settings || {});
   const scoreTotal = getMatchLeagueScoreTotal(match);
   const chipTotal = (match.players || []).reduce((sum, player) => sum + getPlayerChipDiff(player), 0);
   const isEditing = editingMatchId === match.id;
@@ -1269,6 +1270,7 @@ function renderMatchEditItem(match) {
       <span>${escapeHtml(match.endReason || "保存")} / ${finishedAt}</span>
       ${tobashi ? `<span>トバし: ${escapeHtml(tobashi)}</span>` : ""}
       <small>トップ: ${escapeHtml(top ? top.name : "")} ${top ? formatNumber(top.score) : ""}</small>
+      <small>半荘ルール: トビ賞${matchSettings.tobashiBonusEnabled ? "有" : "無"}</small>
       <small>スコア合計${formatSigned(scoreTotal)} / チップ合計${formatSigned(chipTotal)}</small>
       <small>内訳: ${escapeHtml(scores)}</small>
       ${isEditing ? renderMatchEditPanel(match) : ""}
@@ -1277,6 +1279,7 @@ function renderMatchEditItem(match) {
 }
 
 function renderMatchEditPanel(match) {
+  const matchSettings = normalizeSettingsPayload(match.settings || state.settings || {});
   const ranks = getRanksForPlayers(match.players || []);
   const players = (match.players || [])
     .slice()
@@ -1288,6 +1291,17 @@ function renderMatchEditPanel(match) {
         <span>終了理由</span>
         <input type="text" data-match-edit-reason="${escapeHtml(match.id)}" value="${escapeHtml(match.endReason || "")}" />
       </label>
+      <div class="match-edit-rules">
+        <label class="match-edit-rule">
+          <input
+            type="checkbox"
+            data-match-id="${escapeHtml(match.id)}"
+            data-match-edit-setting="tobashiBonusEnabled"
+            ${matchSettings.tobashiBonusEnabled ? "checked" : ""}
+          />
+          <span>この半荘のトビ賞+10</span>
+        </label>
+      </div>
       <div class="ledger-scroll match-edit-scroll">
         <table class="ledger-table match-edit-table">
           <thead>
@@ -1953,10 +1967,16 @@ function saveMatchEdits(matchId) {
     };
   });
   const reasonInput = findMatchEditReasonInput(matchId);
+  const savedSettings = normalizeSettingsPayload(match.settings || state.settings || {});
+  const updatedSettings = {
+    ...savedSettings,
+    tobashiBonusEnabled: readMatchEditCheckbox(matchId, "tobashiBonusEnabled", savedSettings.tobashiBonusEnabled),
+  };
   const updatedMatch = recalculateSavedMatch({
     ...match,
     endReason: reasonInput ? reasonInput.value.trim() || match.endReason || "修正保存" : match.endReason,
     players: updatedPlayers,
+    settings: updatedSettings,
   });
 
   state.matches = matches.map((item) => (item.id === matchId ? updatedMatch : item));
@@ -1983,6 +2003,17 @@ function findMatchEditInput(matchId, playerId, field) {
 
 function findMatchEditReasonInput(matchId) {
   return Array.from(document.querySelectorAll("[data-match-edit-reason]")).find((input) => input.dataset.matchEditReason === matchId);
+}
+
+function readMatchEditCheckbox(matchId, settingKey, fallback = false) {
+  const input = findMatchEditSettingInput(matchId, settingKey);
+  return input ? input.checked : Boolean(fallback);
+}
+
+function findMatchEditSettingInput(matchId, settingKey) {
+  return Array.from(document.querySelectorAll("[data-match-edit-setting]")).find(
+    (input) => input.dataset.matchId === matchId && input.dataset.matchEditSetting === settingKey
+  );
 }
 
 function recalculateSavedMatch(match) {
@@ -2289,7 +2320,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=28", window.location.href);
+  const url = new URL("./share.html?v=29", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -2366,7 +2397,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=28", window.location.href);
+  const url = new URL("./share.html?v=29", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);

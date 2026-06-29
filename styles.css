@@ -1602,6 +1602,31 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   font-weight: 900;
 }
 
+.match-edit-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.match-edit-rule {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.match-edit-rule input {
+  width: 18px;
+  min-height: 18px;
+}
+
 .match-edit-reason input,
 .match-edit-table input {
   width: 100%;
