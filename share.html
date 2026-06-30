@@ -7,7 +7,7 @@
     <title>共有成績 | Mahjong Ledger</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./share.css?v=31" />
+    <link rel="stylesheet" href="./share.css?v=32" />
   </head>
   <body>
     <div class="share-shell">
@@ -23,6 +23,14 @@
 
       <main class="share-workspace">
         <section class="leader-grid" id="leaderGrid" aria-label="暫定首位"></section>
+
+        <section class="json-transfer-band" id="jsonTransferBand" aria-label="PC用JSON保存" hidden>
+          <div>
+            <p class="eyebrow">JSON Transfer</p>
+            <strong>動画編集用JSON</strong>
+          </div>
+          <button class="button" id="jsonDownloadButton" type="button">JSON保存</button>
+        </section>
 
         <section class="standings-section" aria-labelledby="standingsHeading">
           <div class="section-title">
@@ -66,7 +74,7 @@
             <strong>管理用メニュー</strong>
           </div>
           <div class="topbar-actions">
-            <a class="button subtle" href="./index.html?v=31">本体へ</a>
+            <a class="button subtle" href="./index.html?v=32">本体へ</a>
             <button class="button" id="csvButton" type="button">CSV出力</button>
             <button class="button" id="exportButton" type="button">JSON出力</button>
             <button class="button" id="importButton" type="button">JSON読込</button>
@@ -76,6 +84,6 @@
       </main>
     </div>
 
-    <script src="./share.js?v=31" defer></script>
+    <script src="./share.js?v=32" defer></script>
   </body>
 </html>

@@ -167,6 +167,7 @@ h2 {
 }
 
 .status-band,
+.json-transfer-band,
 .share-utility-section,
 .standings-section,
 .matches-section {
@@ -193,6 +194,25 @@ h2 {
   font-size: 0.9rem;
   font-weight: 800;
   text-align: right;
+}
+
+.json-transfer-band {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-color: #b7ded0;
+  background: var(--accent-soft);
+}
+
+.json-transfer-band[hidden] {
+  display: none;
+}
+
+.json-transfer-band strong {
+  display: block;
+  font-size: 1.15rem;
 }
 
 .share-utility-section {
@@ -735,6 +755,7 @@ h2 {
 
   .share-topbar,
   .status-band,
+  .json-transfer-band,
   .share-utility-section {
     align-items: flex-start;
     flex-direction: column;

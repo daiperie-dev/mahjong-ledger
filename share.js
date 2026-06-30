@@ -14,6 +14,8 @@ const elements = {
   sourceLabel: document.querySelector("#sourceLabel"),
   sourceDetail: document.querySelector("#sourceDetail"),
   leaderGrid: document.querySelector("#leaderGrid"),
+  jsonTransferBand: document.querySelector("#jsonTransferBand"),
+  jsonDownloadButton: document.querySelector("#jsonDownloadButton"),
   summaryGrid: document.querySelector("#summaryGrid"),
   standingsHeading: document.querySelector("#standingsHeading"),
   matchesHeading: document.querySelector("#matchesHeading"),
@@ -38,6 +40,7 @@ elements.importButton.addEventListener("click", () => {
 elements.importFile.addEventListener("change", handleImportFile);
 elements.csvButton.addEventListener("click", exportSheetCsv);
 elements.exportButton.addEventListener("click", exportStateJson);
+elements.jsonDownloadButton.addEventListener("click", exportStateJson);
 elements.scopeButtons.forEach((button) => {
   button.addEventListener("click", () => {
     currentScope = button.dataset.scope || "overall";
@@ -371,6 +374,7 @@ function render(state, source) {
     latestValue: currentScope === "today" ? dayLabel : currentScope === "daily" ? `${dayGroups.length}日` : formatDate(latestMatch ? latestMatch.finishedAt : state.createdAt),
   };
   elements.leaderGrid.innerHTML = renderLeaderCard(summary);
+  renderJsonTransferBand(scopedMatches.length);
   elements.summaryGrid.innerHTML = renderSummaryCards(summary);
   elements.standingsTable.innerHTML =
     currentScope === "daily"
@@ -391,6 +395,25 @@ function render(state, source) {
     : "";
   elements.matchList.innerHTML = scopedMatches.length ? renderMatches(scopedMatches) : renderEmpty("半荘保存後にここへ反映されます");
   elements.matchList.innerHTML = "";
+}
+
+function renderJsonTransferBand(matchCount) {
+  const isTransfer = isJsonDownloadRequest();
+  elements.jsonTransferBand.hidden = !isTransfer;
+  if (!isTransfer) {
+    return;
+  }
+
+  elements.jsonDownloadButton.disabled = matchCount === 0;
+  elements.jsonDownloadButton.textContent = matchCount ? "JSON保存" : "保存データなし";
+}
+
+function isJsonDownloadRequest() {
+  const searchParams = new URLSearchParams(window.location.search || "");
+  const hash = window.location.hash || "";
+  const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+  const value = searchParams.get("download") || hashParams.get("download") || searchParams.get("json") || hashParams.get("json");
+  return value === "json" || value === "1" || value === "true";
 }
 
 function renderLeaderCard(summary) {

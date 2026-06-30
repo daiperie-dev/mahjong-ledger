@@ -98,6 +98,7 @@ const elements = {
   finishMatchButton: document.querySelector("#finishMatchButton"),
   csvButton: document.querySelector("#csvButton"),
   shareLinkButton: document.querySelector("#shareLinkButton"),
+  pcJsonLinkButton: document.querySelector("#pcJsonLinkButton"),
   exportButton: document.querySelector("#exportButton"),
   importButton: document.querySelector("#importButton"),
   importFile: document.querySelector("#importFile"),
@@ -297,6 +298,9 @@ function bindEvents() {
   elements.csvButton.addEventListener("click", exportSheetCsv);
   if (elements.shareLinkButton) {
     elements.shareLinkButton.addEventListener("click", shareSnapshotLink);
+  }
+  if (elements.pcJsonLinkButton) {
+    elements.pcJsonLinkButton.addEventListener("click", sharePcJsonLink);
   }
   elements.exportButton.addEventListener("click", exportMatch);
   elements.importButton.addEventListener("click", () => elements.importFile.click());
@@ -2287,11 +2291,34 @@ async function shareSnapshotLink() {
   }
 
   const shareResult = await buildShareUrl();
+  await shareOrCopyUrl(shareResult, {
+    title: "Mahjong Ledger 共有成績",
+    copiedMessage: "共有リンクをコピーしました。スマホに送って開くと成績を見られます。",
+    promptMessage: "共有リンクをコピーしてください。",
+  });
+}
+
+async function sharePcJsonLink() {
+  const matches = Array.isArray(state.matches) ? state.matches : [];
+  if (matches.length === 0) {
+    window.alert("PCへ渡す保存済み半荘がありません。半荘保存後にPC用JSONリンクを作成してください。");
+    return;
+  }
+
+  const shareResult = await buildShareUrl({ jsonDownload: true });
+  await shareOrCopyUrl(shareResult, {
+    title: "Mahjong Ledger JSON",
+    copiedMessage: "PC用JSONリンクをコピーしました。PCで開くとJSON保存ボタンが出ます。",
+    promptMessage: "PC用JSONリンクをコピーしてください。",
+  });
+}
+
+async function shareOrCopyUrl(shareResult, messages) {
   const url = shareResult.url;
   if (shareResult.warning) {
     window.alert(shareResult.warning);
   }
-  const title = "Mahjong Ledger 共有成績";
+  const title = messages.title || "Mahjong Ledger";
 
   try {
     if (navigator.share) {
@@ -2301,7 +2328,7 @@ async function shareSnapshotLink() {
 
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(url);
-      window.alert("共有リンクをコピーしました。スマホに送って開くと成績を見られます。");
+      window.alert(messages.copiedMessage || "リンクをコピーしました。");
       return;
     }
   } catch (error) {
@@ -2310,23 +2337,35 @@ async function shareSnapshotLink() {
     }
   }
 
-  window.prompt("共有リンクをコピーしてください。", url);
+  window.prompt(messages.promptMessage || "リンクをコピーしてください。", url);
 }
 
-async function buildShareUrl() {
+async function buildShareUrl(options = {}) {
   const snapshot = createShareSnapshot();
   const remoteShare = await buildRemoteShareUrl(snapshot);
   if (remoteShare.url) {
-    return remoteShare;
+    return {
+      ...remoteShare,
+      url: options.jsonDownload ? addJsonDownloadParam(remoteShare.url) : remoteShare.url,
+    };
   }
 
-  const url = new URL("./share.html?v=31", window.location.href);
+  const url = new URL("./share.html?v=32", window.location.href);
+  if (options.jsonDownload) {
+    url.searchParams.set("download", "json");
+  }
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
     url: url.toString(),
     warning: remoteShare.warning,
   };
+}
+
+function addJsonDownloadParam(urlString) {
+  const url = new URL(urlString, window.location.href);
+  url.searchParams.set("download", "json");
+  return url.toString();
 }
 
 async function buildRemoteShareUrl(snapshot, options = {}) {
@@ -2397,7 +2436,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=31", window.location.href);
+  const url = new URL("./share.html?v=32", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
