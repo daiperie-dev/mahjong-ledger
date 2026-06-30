@@ -2320,7 +2320,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=30", window.location.href);
+  const url = new URL("./share.html?v=31", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -2397,7 +2397,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=30", window.location.href);
+  const url = new URL("./share.html?v=31", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);

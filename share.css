@@ -167,6 +167,7 @@ h2 {
 }
 
 .status-band,
+.share-utility-section,
 .standings-section,
 .matches-section {
   min-width: 0;
@@ -194,9 +195,27 @@ h2 {
   text-align: right;
 }
 
+.share-utility-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+}
+
+.share-utility-section strong {
+  display: block;
+  font-size: 1.05rem;
+}
+
+.leader-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -239,6 +258,14 @@ h2 {
 .summary-card.gold {
   border-color: #efd39b;
   background: var(--gold-soft);
+}
+
+.leader-card {
+  min-height: 74px;
+}
+
+.leader-card strong {
+  font-size: clamp(1.55rem, 3vw, 2.25rem);
 }
 
 .standings-section,
@@ -707,7 +734,8 @@ h2 {
   }
 
   .share-topbar,
-  .status-band {
+  .status-band,
+  .share-utility-section {
     align-items: flex-start;
     flex-direction: column;
   }

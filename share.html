@@ -7,7 +7,7 @@
     <title>共有成績 | Mahjong Ledger</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./share.css?v=30" />
+    <link rel="stylesheet" href="./share.css?v=31" />
   </head>
   <body>
     <div class="share-shell">
@@ -19,16 +19,11 @@
             <h1>共有成績</h1>
           </div>
         </div>
-        <div class="topbar-actions">
-          <a class="button subtle" href="./index.html?v=30">本体へ</a>
-          <button class="button" id="csvButton" type="button">CSV出力</button>
-          <button class="button" id="exportButton" type="button">JSON出力</button>
-          <button class="button" id="importButton" type="button">JSON読込</button>
-          <input id="importFile" type="file" accept="application/json,.json" hidden />
-        </div>
       </header>
 
       <main class="share-workspace">
+        <section class="leader-grid" id="leaderGrid" aria-label="暫定首位"></section>
+
         <section class="standings-section" aria-labelledby="standingsHeading">
           <div class="section-title">
             <div>
@@ -64,9 +59,23 @@
           </div>
           <span id="sourceDetail">保存済みデータを確認中</span>
         </section>
+
+        <section class="share-utility-section" aria-label="管理用メニュー">
+          <div>
+            <p class="eyebrow">Tools</p>
+            <strong>管理用メニュー</strong>
+          </div>
+          <div class="topbar-actions">
+            <a class="button subtle" href="./index.html?v=31">本体へ</a>
+            <button class="button" id="csvButton" type="button">CSV出力</button>
+            <button class="button" id="exportButton" type="button">JSON出力</button>
+            <button class="button" id="importButton" type="button">JSON読込</button>
+            <input id="importFile" type="file" accept="application/json,.json" hidden />
+          </div>
+        </section>
       </main>
     </div>
 
-    <script src="./share.js?v=30" defer></script>
+    <script src="./share.js?v=31" defer></script>
   </body>
 </html>

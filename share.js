@@ -13,6 +13,7 @@ const elements = {
   exportButton: document.querySelector("#exportButton"),
   sourceLabel: document.querySelector("#sourceLabel"),
   sourceDetail: document.querySelector("#sourceDetail"),
+  leaderGrid: document.querySelector("#leaderGrid"),
   summaryGrid: document.querySelector("#summaryGrid"),
   standingsHeading: document.querySelector("#standingsHeading"),
   matchesHeading: document.querySelector("#matchesHeading"),
@@ -360,7 +361,7 @@ function render(state, source) {
   elements.scopeButtons.forEach((button) => {
     button.setAttribute("aria-pressed", String((button.dataset.scope || "overall") === currentScope));
   });
-  elements.summaryGrid.innerHTML = renderSummaryCards({
+  const summary = {
     matchCount: currentScope === "daily" ? dayGroups.length : scopedMatches.length,
     participantCount,
     latestAt: latestMatch ? latestMatch.finishedAt : state.createdAt,
@@ -368,7 +369,9 @@ function render(state, source) {
     scopeLabel: currentScope === "today" ? "当日半荘" : currentScope === "daily" ? "日数" : "半荘数",
     latestLabel: currentScope === "today" ? "対象日" : currentScope === "daily" ? "対象日数" : "最終更新",
     latestValue: currentScope === "today" ? dayLabel : currentScope === "daily" ? `${dayGroups.length}日` : formatDate(latestMatch ? latestMatch.finishedAt : state.createdAt),
-  });
+  };
+  elements.leaderGrid.innerHTML = renderLeaderCard(summary);
+  elements.summaryGrid.innerHTML = renderSummaryCards(summary);
   elements.standingsTable.innerHTML =
     currentScope === "daily"
       ? renderDailySummaries(matches)
@@ -390,6 +393,15 @@ function render(state, source) {
   elements.matchList.innerHTML = "";
 }
 
+function renderLeaderCard(summary) {
+  return `
+    <article class="summary-card gold leader-card">
+      <span>暫定首位</span>
+      <strong>${escapeHtml(summary.topName || "-")}</strong>
+    </article>
+  `;
+}
+
 function renderSummaryCards(summary) {
   return `
     <article class="summary-card accent">
@@ -399,10 +411,6 @@ function renderSummaryCards(summary) {
     <article class="summary-card blue">
       <span>参加者</span>
       <strong>${formatNumber(summary.participantCount)}</strong>
-    </article>
-    <article class="summary-card gold">
-      <span>暫定首位</span>
-      <strong>${escapeHtml(summary.topName || "-")}</strong>
     </article>
     <article class="summary-card">
       <span>${escapeHtml(summary.latestLabel || "最終更新")}</span>
