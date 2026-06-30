@@ -7,7 +7,7 @@
     <title>共有成績 | Mahjong Ledger</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./share.css?v=29" />
+    <link rel="stylesheet" href="./share.css?v=30" />
   </head>
   <body>
     <div class="share-shell">
@@ -20,24 +20,15 @@
           </div>
         </div>
         <div class="topbar-actions">
-          <a class="button subtle" href="./index.html?v=29">本体へ</a>
+          <a class="button subtle" href="./index.html?v=30">本体へ</a>
           <button class="button" id="csvButton" type="button">CSV出力</button>
+          <button class="button" id="exportButton" type="button">JSON出力</button>
           <button class="button" id="importButton" type="button">JSON読込</button>
           <input id="importFile" type="file" accept="application/json,.json" hidden />
         </div>
       </header>
 
       <main class="share-workspace">
-        <section class="status-band" aria-label="共有データ">
-          <div>
-            <p class="eyebrow">Source</p>
-            <strong id="sourceLabel">ローカル保存</strong>
-          </div>
-          <span id="sourceDetail">保存済みデータを確認中</span>
-        </section>
-
-        <section class="summary-grid" id="summaryGrid" aria-label="リーグ概要"></section>
-
         <section class="standings-section" aria-labelledby="standingsHeading">
           <div class="section-title">
             <div>
@@ -63,9 +54,19 @@
           </div>
           <div class="match-list" id="matchList"></div>
         </section>
+
+        <section class="summary-grid" id="summaryGrid" aria-label="リーグ概要"></section>
+
+        <section class="status-band" aria-label="共有データ">
+          <div>
+            <p class="eyebrow">Source</p>
+            <strong id="sourceLabel">ローカル保存</strong>
+          </div>
+          <span id="sourceDetail">保存済みデータを確認中</span>
+        </section>
       </main>
     </div>
 
-    <script src="./share.js?v=29" defer></script>
+    <script src="./share.js?v=30" defer></script>
   </body>
 </html>

@@ -1474,11 +1474,11 @@ function renderScoreTrend(matches) {
   }
 
   const width = 680;
-  const height = 240;
+  const height = 210;
   const padLeft = 44;
   const padRight = 104;
-  const padTop = 18;
-  const padBottom = 34;
+  const padTop = 10;
+  const padBottom = 22;
   const plotWidth = width - padLeft - padRight;
   const plotHeight = height - padTop - padBottom;
   const stepMax = Math.max(1, chronological.length);
@@ -2320,7 +2320,7 @@ async function buildShareUrl() {
     return remoteShare;
   }
 
-  const url = new URL("./share.html?v=29", window.location.href);
+  const url = new URL("./share.html?v=30", window.location.href);
   const compressed = await encodeCompressedSharePayload(snapshot);
   url.hash = compressed ? `z=${compressed}` : `data=${encodeSharePayload(snapshot)}`;
   return {
@@ -2397,7 +2397,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=29", window.location.href);
+  const url = new URL("./share.html?v=30", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);

@@ -10,6 +10,7 @@ const elements = {
   importButton: document.querySelector("#importButton"),
   importFile: document.querySelector("#importFile"),
   csvButton: document.querySelector("#csvButton"),
+  exportButton: document.querySelector("#exportButton"),
   sourceLabel: document.querySelector("#sourceLabel"),
   sourceDetail: document.querySelector("#sourceDetail"),
   summaryGrid: document.querySelector("#summaryGrid"),
@@ -35,6 +36,7 @@ elements.importButton.addEventListener("click", () => {
 
 elements.importFile.addEventListener("change", handleImportFile);
 elements.csvButton.addEventListener("click", exportSheetCsv);
+elements.exportButton.addEventListener("click", exportStateJson);
 elements.scopeButtons.forEach((button) => {
   button.addEventListener("click", () => {
     currentScope = button.dataset.scope || "overall";
@@ -296,6 +298,12 @@ function exportSheetCsv() {
 
   const stamp = new Date().toISOString().slice(0, 10);
   downloadTextFile(buildSheetCsv(matches), `mahjong-ledger-sheet-${stamp}.csv`, "text/csv");
+}
+
+function exportStateJson() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const payload = JSON.stringify(currentState, null, 2);
+  downloadTextFile(payload, `mahjong-ledger-${stamp}.json`, "application/json");
 }
 
 function normalizeState(data) {
@@ -938,11 +946,11 @@ function renderScoreTrend(matches) {
   }
 
   const width = 680;
-  const height = 240;
+  const height = 210;
   const padLeft = 44;
   const padRight = 104;
-  const padTop = 18;
-  const padBottom = 34;
+  const padTop = 10;
+  const padBottom = 22;
   const plotWidth = width - padLeft - padRight;
   const plotHeight = height - padTop - padBottom;
   const stepMax = Math.max(1, chronological.length);

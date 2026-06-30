@@ -191,6 +191,12 @@ h2 {
   font-weight: 800;
 }
 
+.button.compact {
+  min-width: 82px;
+  padding: 0 10px;
+  font-size: 0.86rem;
+}
+
 .button.primary {
   border-color: var(--accent-strong);
   background: var(--accent);
@@ -1464,7 +1470,9 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
 
 .trend-body svg {
   width: min(100%, 680px);
-  min-height: 180px;
+  aspect-ratio: 680 / 210;
+  height: auto;
+  min-height: 0;
   flex: 1 1 420px;
 }
 
@@ -1850,6 +1858,16 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   .trend-body {
     align-items: stretch;
     flex-direction: column;
+    gap: 6px;
+  }
+
+  .trend-panel {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .trend-body svg {
+    flex-basis: auto;
   }
 
   .trend-legend {

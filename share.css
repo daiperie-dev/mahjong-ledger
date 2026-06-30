@@ -563,7 +563,9 @@ h2 {
 
 .trend-body svg {
   width: min(100%, 680px);
-  min-height: 190px;
+  aspect-ratio: 680 / 210;
+  height: auto;
+  min-height: 0;
   flex: 1 1 480px;
 }
 
@@ -731,6 +733,16 @@ h2 {
   .trend-body {
     align-items: stretch;
     flex-direction: column;
+    gap: 6px;
+  }
+
+  .trend-panel {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .trend-body svg {
+    flex-basis: auto;
   }
 
   .trend-legend {

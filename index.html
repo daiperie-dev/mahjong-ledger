@@ -7,7 +7,7 @@
     <title>Mahjong Ledger</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=29" />
+    <link rel="stylesheet" href="./styles.css?v=30" />
   </head>
   <body>
     <div class="app-shell">
@@ -24,15 +24,9 @@
           <button class="icon-button" id="themeToggle" type="button" aria-label="表示切替" title="表示切替">
             ◐
           </button>
-          <button class="icon-button" id="csvButton" type="button" aria-label="シートCSV書き出し" title="シートCSV書き出し">
-            CSV
-          </button>
-          <button class="icon-button" id="exportButton" type="button" aria-label="書き出し" title="書き出し">
-            ⇩
-          </button>
-          <button class="icon-button" id="importButton" type="button" aria-label="JSON読込" title="JSON読込">
-            ⇧
-          </button>
+          <button class="button compact" id="csvButton" type="button" aria-label="シートCSV書き出し" title="シートCSV書き出し">CSV出力</button>
+          <button class="button compact" id="exportButton" type="button" aria-label="JSON出力" title="JSON出力">JSON出力</button>
+          <button class="button compact" id="importButton" type="button" aria-label="JSON読込" title="JSON読込">JSON読込</button>
           <input id="importFile" type="file" accept="application/json,.json" hidden />
           <button class="button danger" id="resetButton" type="button">新規対局</button>
         </div>
@@ -170,6 +164,6 @@
       </main>
     </div>
 
-    <script src="./app.js?v=29" defer></script>
+    <script src="./app.js?v=30" defer></script>
   </body>
 </html>
