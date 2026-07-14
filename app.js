@@ -6,6 +6,8 @@ const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{8,80}$/;
 const STARTING_SCORE = 25000;
 const RETURN_SCORE = 30000;
 const STARTING_CHIPS = 20;
+const PARTICIPANT_NAME_MAX_LENGTH = 24;
+const PARTICIPANT_LIMIT = 64;
 const ROUNDS = ["東1局", "東2局", "東3局", "東4局", "南1局", "南2局", "南3局", "南4局"];
 const HONBA_RON_POINTS = 300;
 const HONBA_TSUMO_POINTS = 100;
@@ -140,6 +142,7 @@ function createInitialState() {
       wins: 0,
       dealIns: 0,
     })),
+    participants: [],
     history: [],
     matches: [],
     settings: createDefaultSettings(),
@@ -234,10 +237,57 @@ function normalizeStatePayload(parsed) {
       chips: STARTING_CHIPS,
       ...player,
     })),
+    participants: normalizeParticipantRegistry(parsed),
     history: Array.isArray(parsed.history) ? parsed.history : [],
     matches: Array.isArray(parsed.matches) ? parsed.matches : [],
     settings: normalizeSettingsPayload(parsed.settings || {}),
   };
+}
+
+function normalizeParticipantRegistry(payload) {
+  const explicitParticipants = Array.isArray(payload.participants) ? payload.participants : [];
+  const legacyNames = [];
+
+  (payload.players || []).forEach((player) => legacyNames.push(player && player.name));
+  (payload.matches || []).forEach((match) => {
+    (match.players || []).forEach((player) => legacyNames.push(player && player.name));
+  });
+
+  return normalizeParticipantNames([
+    ...explicitParticipants,
+    ...legacyNames.filter((name) => !isGenericPlayerName(name)),
+  ]);
+}
+
+function normalizeParticipantNames(values) {
+  const names = [];
+  const seen = new Set();
+
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const name = normalizeParticipantName(typeof value === "string" ? value : value && value.name);
+    const key = getParticipantKey(name);
+    if (!name || !key || seen.has(key) || names.length >= PARTICIPANT_LIMIT) {
+      return;
+    }
+    seen.add(key);
+    names.push(name);
+  });
+
+  return names;
+}
+
+function normalizeParticipantName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, PARTICIPANT_NAME_MAX_LENGTH);
+}
+
+function getParticipantKey(value) {
+  const name = normalizeParticipantName(value);
+  return name ? name.normalize("NFKC").toLocaleLowerCase("ja") : "";
+}
+
+function isGenericPlayerName(value) {
+  const name = normalizeParticipantName(value);
+  return ["東家", "南家", "西家", "北家"].includes(name) || /^対局者[1-4]$/.test(name);
 }
 
 function normalizeSettingsPayload(settings) {
@@ -291,6 +341,7 @@ function bindEvents() {
   document.addEventListener("click", handleClick);
   document.addEventListener("change", handleChange);
   document.addEventListener("input", handleInput);
+  document.addEventListener("keydown", handleKeyDown);
   elements.saveHandButton.addEventListener("click", saveHand);
   elements.undoButton.addEventListener("click", undoLastHand);
   elements.resetButton.addEventListener("click", resetMatch);
@@ -400,6 +451,14 @@ function handleClick(event) {
   if (action === "delete-all-data") {
     deleteAllData();
   }
+
+  if (action === "add-participant") {
+    addParticipant();
+  }
+
+  if (action === "delete-participant") {
+    deleteParticipant(target.dataset.participantName || "");
+  }
 }
 
 function handleChange(event) {
@@ -408,7 +467,17 @@ function handleChange(event) {
   if (target.matches("[data-player-name]")) {
     const player = state.players.find((item) => item.id === target.dataset.playerName);
     if (player) {
-      player.name = target.value.trim() || defaultPlayerName(player.seat);
+      const participantName = normalizeParticipantName(target.value);
+      const duplicate = state.players.some(
+        (item) => item.id !== player.id && getParticipantKey(item.name) === getParticipantKey(participantName)
+      );
+      if (participantName && duplicate) {
+        window.alert("同じ参加者を2つの席に選ぶことはできません。");
+        render();
+        return;
+      }
+
+      updateCurrentPlayerName(player.id, participantName || defaultPlayerName(player.seat));
       saveState();
       render();
     }
@@ -473,6 +542,13 @@ function handleChange(event) {
   }
 }
 
+function handleKeyDown(event) {
+  if (event.key === "Enter" && event.target && event.target.id === "participantNameInput") {
+    event.preventDefault();
+    addParticipant();
+  }
+}
+
 function handleInput(event) {
   const target = event.target;
 
@@ -518,6 +594,7 @@ function render() {
 
 function renderPlayers() {
   const ranks = getRanks();
+  const participants = normalizeParticipantNames(state.participants || []);
 
   elements.playersGrid.innerHTML = state.players
     .map((player) => {
@@ -526,6 +603,18 @@ function renderPlayers() {
       const chipDiff = Number(player.chips ?? STARTING_CHIPS) - STARTING_CHIPS;
       const chipClass = chipDiff > 0 ? "plus" : chipDiff < 0 ? "minus" : "";
       const wind = getPlayerWindMeta(player);
+      const selectedKey = getParticipantKey(player.name);
+      const hasSelectedParticipant = participants.some((name) => getParticipantKey(name) === selectedKey);
+      const unavailableKeys = new Set(
+        state.players.filter((item) => item.id !== player.id).map((item) => getParticipantKey(item.name)).filter(Boolean)
+      );
+      const participantOptions = participants
+        .map((name) => {
+          const key = getParticipantKey(name);
+          const selected = key === selectedKey;
+          return `<option value="${escapeHtml(name)}" ${selected ? "selected" : ""} ${!selected && unavailableKeys.has(key) ? "disabled" : ""}>${escapeHtml(name)}</option>`;
+        })
+        .join("");
 
       return `
         <article class="player-card">
@@ -535,12 +624,14 @@ function renderPlayers() {
               <span class="wind-chip ${wind.isDealer ? "dealer" : ""}">
                 ${wind.label}${wind.isDealer ? "<small>親</small>" : ""}
               </span>
-              <input
+              <select
                 class="player-name"
                 data-player-name="${player.id}"
-                value="${escapeHtml(player.name)}"
-                aria-label="${escapeHtml(player.name)}の名前"
-              />
+                aria-label="${wind.label}家の参加者"
+              >
+                <option value="" ${hasSelectedParticipant ? "" : "selected"}>参加者を選択</option>
+                ${participantOptions}
+              </select>
             </div>
             <div class="score-line">
               <strong>${formatNumber(player.score)}</strong>
@@ -1539,6 +1630,24 @@ function renderScoreTrend(matches) {
 }
 
 function renderSettings() {
+  const participants = normalizeParticipantNames(state.participants || []);
+  const participantListHtml = participants.length
+    ? participants
+        .map(
+          (name) => `
+            <div class="participant-item">
+              <strong>${escapeHtml(name)}</strong>
+              <button
+                class="mini-delete-button"
+                type="button"
+                data-action="delete-participant"
+                data-participant-name="${escapeHtml(name)}"
+              >削除</button>
+            </div>
+          `
+        )
+        .join("")
+    : `<p class="participant-empty">参加者はまだ登録されていません。</p>`;
   const ruleSettingsHtml = SETTINGS.map((setting) => {
     const value = state.settings[setting.key];
     if (setting.type === "number") {
@@ -1586,6 +1695,20 @@ function renderSettings() {
   `).join("");
 
   elements.settingsGrid.innerHTML = `
+    <div class="settings-subhead">参加者名簿</div>
+    <section class="participant-registry" aria-label="参加者名簿">
+      <div class="participant-add-row">
+        <label for="participantNameInput">名前</label>
+        <input id="participantNameInput" type="text" maxlength="${PARTICIPANT_NAME_MAX_LENGTH}" autocomplete="off" placeholder="参加者名" />
+        <button class="button subtle" type="button" data-action="add-participant">追加</button>
+      </div>
+      <div class="participant-registry-head">
+        <strong>登録済み</strong>
+        <span>${participants.length}名</span>
+      </div>
+      <div class="participant-list">${participantListHtml}</div>
+    </section>
+    <div class="settings-subhead">ルール・記録票</div>
     ${ruleSettingsHtml}
     <div class="settings-subhead">共有API</div>
     ${shareSettingsHtml}
@@ -1604,8 +1727,102 @@ function renderSettings() {
   }
 }
 
+function addParticipant() {
+  const input = document.querySelector("#participantNameInput");
+  const name = normalizeParticipantName(input ? input.value : "");
+  if (!name) {
+    window.alert("登録する参加者名を入力してください。");
+    return;
+  }
+
+  const participants = normalizeParticipantNames(state.participants || []);
+  if (participants.some((item) => getParticipantKey(item) === getParticipantKey(name))) {
+    window.alert("同じ名前の参加者がすでに登録されています。");
+    return;
+  }
+
+  if (participants.length >= PARTICIPANT_LIMIT) {
+    window.alert(`参加者は${PARTICIPANT_LIMIT}名まで登録できます。`);
+    return;
+  }
+
+  state.participants = [...participants, name];
+  saveState();
+  render();
+}
+
+function deleteParticipant(rawName) {
+  const name = normalizeParticipantName(rawName);
+  if (!name) {
+    return;
+  }
+
+  const key = getParticipantKey(name);
+  const isSelected = state.players.some((player) => getParticipantKey(player.name) === key);
+  if (isSelected) {
+    window.alert("この参加者は現在の対局に選ばれています。先に別の参加者へ変更してください。");
+    return;
+  }
+
+  if (!window.confirm(`${name} を参加者名簿から削除しますか？保存済みの成績は残ります。`)) {
+    return;
+  }
+
+  state.participants = normalizeParticipantNames(state.participants || []).filter((item) => getParticipantKey(item) !== key);
+  saveState();
+  render();
+}
+
+function updateCurrentPlayerName(playerId, name) {
+  const normalizedName = normalizeParticipantName(name);
+  const player = state.players.find((item) => item.id === playerId);
+  if (!player) {
+    return;
+  }
+
+  const displayName = normalizedName || defaultPlayerName(player.seat);
+  player.name = displayName;
+  (state.history || []).forEach((hand) => {
+    [hand.playersBefore, hand.playersAfter].forEach((players) => {
+      if (!Array.isArray(players)) {
+        return;
+      }
+      const snapshotPlayer = players.find((item) => item.id === playerId);
+      if (snapshotPlayer) {
+        snapshotPlayer.name = displayName;
+      }
+    });
+  });
+}
+
+function validateActiveParticipants() {
+  const participants = normalizeParticipantNames(state.participants || []);
+  if (participants.length < state.players.length) {
+    window.alert("設定の参加者名簿に4名以上を登録してください。");
+    return false;
+  }
+
+  const rosterKeys = new Set(participants.map(getParticipantKey));
+  const selectedKeys = state.players.map((player) => getParticipantKey(player.name));
+  if (selectedKeys.some((key) => !key || !rosterKeys.has(key))) {
+    window.alert("4つの席すべてで、参加者名簿から参加者を選択してください。");
+    return false;
+  }
+
+  if (new Set(selectedKeys).size !== state.players.length) {
+    window.alert("同じ参加者を2つの席に選ぶことはできません。");
+    return false;
+  }
+
+  return true;
+}
+
 function saveHand() {
   syncDraftFromControls();
+
+  if (!validateActiveParticipants()) {
+    return;
+  }
 
   if (!validateDraft()) {
     return;
@@ -2106,6 +2323,10 @@ function finishMatchManually() {
     return;
   }
 
+  if (!validateActiveParticipants()) {
+    return;
+  }
+
   if (!window.confirm("この半荘を保存して次の半荘を開始しますか？")) {
     return;
   }
@@ -2176,6 +2397,7 @@ function createNextMatchState(previousState) {
     name: previousState.players[index] ? previousState.players[index].name : player.name,
   }));
   next.matches = Array.isArray(previousState.matches) ? previousState.matches : [];
+  next.participants = normalizeParticipantNames(previousState.participants || []);
   next.settings = normalizeSettingsPayload(previousState.settings || {});
 
   return next;
@@ -2350,7 +2572,7 @@ async function buildShareUrl(options = {}) {
     };
   }
 
-  const url = new URL("./share.html?v=32", window.location.href);
+  const url = new URL("./share.html?v=33", window.location.href);
   if (options.jsonDownload) {
     url.searchParams.set("download", "json");
   }
@@ -2436,7 +2658,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=32", window.location.href);
+  const url = new URL("./share.html?v=33", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
