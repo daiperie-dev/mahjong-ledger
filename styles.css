@@ -122,17 +122,28 @@ a.button:active {
   gap: 12px;
 }
 
-.brand-mark {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 2px solid var(--ink);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--accent-strong);
-  font-weight: 900;
+.brand-logo-main {
+  flex: 0 1 auto;
+}
+
+.brand-logo {
+  display: block;
+  width: clamp(210px, 23vw, 270px);
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .eyebrow {
@@ -1963,9 +1974,8 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
 }
 
 @media (max-width: 460px) {
-  .brand-mark {
-    width: 42px;
-    height: 42px;
+  .brand-logo {
+    width: min(72vw, 230px);
   }
 
   .player-card {

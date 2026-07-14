@@ -116,17 +116,17 @@ button:active,
   gap: 12px;
 }
 
-.brand-mark {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 2px solid var(--ink);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--accent);
-  font-weight: 900;
+.share-brand {
+  gap: 14px;
+}
+
+.brand-logo {
+  display: block;
+  width: clamp(150px, 18vw, 190px);
+  height: auto;
+  flex: 0 1 auto;
+  object-fit: contain;
+  object-position: left center;
 }
 
 .topbar-actions {
@@ -759,6 +759,10 @@ h2 {
   .share-utility-section {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .brand-logo {
+    width: min(44vw, 170px);
   }
 
   .topbar-actions {

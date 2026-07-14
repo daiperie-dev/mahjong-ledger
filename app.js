@@ -2572,7 +2572,7 @@ async function buildShareUrl(options = {}) {
     };
   }
 
-  const url = new URL("./share.html?v=33", window.location.href);
+  const url = new URL("./share.html?v=34", window.location.href);
   if (options.jsonDownload) {
     url.searchParams.set("download", "json");
   }
@@ -2658,7 +2658,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=33", window.location.href);
+  const url = new URL("./share.html?v=34", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);

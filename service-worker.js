@@ -1,14 +1,15 @@
-const CACHE_NAME = "mahjong-ledger-v33";
+const CACHE_NAME = "mahjong-ledger-v34";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=33",
-  "./app.js?v=33",
+  "./styles.css?v=34",
+  "./app.js?v=34",
   "./share.html",
-  "./share.css?v=33",
-  "./share.js?v=33",
+  "./share.css?v=34",
+  "./share.js?v=34",
   "./manifest.json",
   "./icon.svg",
+  "./assets/od-cup-logo.png",
 ];
 
 self.addEventListener("install", (event) => {
