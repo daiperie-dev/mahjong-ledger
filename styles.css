@@ -1660,7 +1660,7 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
 }
 
 .match-edit-table {
-  min-width: 860px;
+  min-width: 1040px;
 }
 
 .match-edit-table th,
@@ -1672,6 +1672,25 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
 .match-edit-table tbody th {
   min-width: 92px;
   text-align: left;
+}
+
+.match-edit-table .match-edit-flag-cell {
+  min-width: 104px;
+  padding: 0;
+  text-align: center;
+}
+
+.match-edit-check {
+  display: grid;
+  min-height: 46px;
+  place-items: center;
+  cursor: pointer;
+}
+
+.match-edit-table .match-edit-check input[type="checkbox"] {
+  width: 24px;
+  min-height: 24px;
+  accent-color: var(--accent-strong);
 }
 
 .match-edit-actions {

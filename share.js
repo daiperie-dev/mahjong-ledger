@@ -1192,7 +1192,7 @@ function getAggregateRows(matches) {
       row.secondOrBetterCount += rank <= 2 ? 1 : 0;
       row.avoidLastCount += rank < Math.max(1, (match.players || []).length) ? 1 : 0;
       row.tobiCount += Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : 0;
-      row.tobashiCredit += Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+      row.tobashiCredit += Number((match.tobashiShares && match.tobashiShares[player.id]) || 0) > 0 ? 1 : 0;
       row.tobashiBonusTotal += getPlayerTobashiBonus({ ...player, rank }, match);
       row.leagueScoreTotal += getPlayerLeagueScore({ ...player, rank }, match);
       row.chipDiffTotal += getPlayerChipDiff(player);
@@ -1374,7 +1374,8 @@ function formatTobashiPlayers(match) {
       if (!player || share <= 0) {
         return "";
       }
-      return share === 1 ? player.name : `${player.name} ${share.toFixed(2)}`;
+      const shareLabel = Number.isInteger(share) ? `${share}人分` : `${share.toFixed(2)}人分`;
+      return share === 1 ? player.name : `${player.name} ${shareLabel}`;
     })
     .filter(Boolean)
     .join("、");

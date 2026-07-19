@@ -1395,6 +1395,8 @@ function renderMatchEditItem(match) {
 function renderMatchEditPanel(match) {
   const matchSettings = normalizeSettingsPayload(match.settings || state.settings || {});
   const ranks = getRanksForPlayers(match.players || []);
+  const bustedIds = new Set(Array.isArray(match.bustedIds) ? match.bustedIds : []);
+  const tobashiIds = new Set(getTobashiPlayerIds(match));
   const players = (match.players || [])
     .slice()
     .sort((a, b) => Number(a.seat || 0) - Number(b.seat || 0));
@@ -1424,6 +1426,8 @@ function renderMatchEditPanel(match) {
               <th>順位</th>
               <th>点数</th>
               <th>チップ差</th>
+              <th>トバされた</th>
+              <th>トバした<br />（複数は均等）</th>
               <th>局数</th>
               <th>和了</th>
               <th>放銃</th>
@@ -1441,6 +1445,8 @@ function renderMatchEditPanel(match) {
                     <td>${rank}</td>
                     <td><input type="number" inputmode="numeric" step="100" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="score" value="${Number(player.score || 0)}" /></td>
                     <td><input type="number" inputmode="decimal" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="chipDiff" value="${formatChipInputValue(getPlayerChipDiff(player))}" /></td>
+                    <td class="match-edit-flag-cell"><label class="match-edit-check"><input type="checkbox" aria-label="${escapeHtml(player.name)}をトバされた人にする" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-tobi-role="busted" ${bustedIds.has(player.id) ? "checked" : ""} /></label></td>
+                    <td class="match-edit-flag-cell"><label class="match-edit-check"><input type="checkbox" aria-label="${escapeHtml(player.name)}をトバした人にする" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-tobi-role="tobasher" ${tobashiIds.has(player.id) ? "checked" : ""} /></label></td>
                     <td><input type="number" inputmode="numeric" min="0" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="hands" value="${Number(player.hands || 0)}" /></td>
                     <td><input type="number" inputmode="numeric" min="0" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="wins" value="${Number(player.wins || 0)}" /></td>
                     <td><input type="number" inputmode="numeric" min="0" step="1" data-match-id="${escapeHtml(match.id)}" data-player-id="${escapeHtml(player.id)}" data-match-edit-field="dealIns" value="${Number(player.dealIns || 0)}" /></td>
@@ -2218,9 +2224,18 @@ function saveMatchEdits(matchId) {
     ...savedSettings,
     tobashiBonusEnabled: readMatchEditCheckbox(matchId, "tobashiBonusEnabled", savedSettings.tobashiBonusEnabled),
   };
+  const bustedIds = readMatchEditTobiPlayerIds(matchId, "busted");
+  const tobashiIds = readMatchEditTobiPlayerIds(matchId, "tobasher");
+  if (!validateMatchEditTobiPlayers(bustedIds, tobashiIds)) {
+    return;
+  }
+  const tobashiShares = distributeTobashiAwards(bustedIds, tobashiIds);
   const updatedMatch = recalculateSavedMatch({
     ...match,
     endReason: reasonInput ? reasonInput.value.trim() || match.endReason || "修正保存" : match.endReason,
+    bustedIds,
+    tobashiIds,
+    tobashiShares,
     players: updatedPlayers,
     settings: updatedSettings,
   });
@@ -2260,6 +2275,31 @@ function findMatchEditSettingInput(matchId, settingKey) {
   return Array.from(document.querySelectorAll("[data-match-edit-setting]")).find(
     (input) => input.dataset.matchId === matchId && input.dataset.matchEditSetting === settingKey
   );
+}
+
+function readMatchEditTobiPlayerIds(matchId, role) {
+  return Array.from(document.querySelectorAll("[data-match-edit-tobi-role]"))
+    .filter((input) => input.dataset.matchId === matchId && input.dataset.matchEditTobiRole === role && input.checked)
+    .map((input) => input.dataset.playerId)
+    .filter(Boolean);
+}
+
+function validateMatchEditTobiPlayers(bustedIds, tobashiIds) {
+  if (bustedIds.length === 0 && tobashiIds.length === 0) {
+    return true;
+  }
+
+  if (bustedIds.length === 0 || tobashiIds.length === 0) {
+    window.alert("トバされた人とトバした人を両方選択してください。");
+    return false;
+  }
+
+  if (bustedIds.some((playerId) => tobashiIds.includes(playerId))) {
+    window.alert("同じ参加者をトバされた人とトバした人の両方には設定できません。");
+    return false;
+  }
+
+  return true;
 }
 
 function recalculateSavedMatch(match) {
@@ -2463,10 +2503,11 @@ function getMatchEndInfo(hand) {
 
 function determineTobashiShares(hand, bustedPlayers) {
   const shares = {};
+  const bustedCount = bustedPlayers.length;
 
   if (hand.result === "ron" || hand.result === "tsumo") {
     if (hand.winnerId) {
-      shares[hand.winnerId] = 1;
+      shares[hand.winnerId] = bustedCount;
     }
     return shares;
   }
@@ -2481,16 +2522,15 @@ function determineTobashiShares(hand, bustedPlayers) {
   }
 
   if (positivePlayers.length === 1 || state.settings.drawTobashiMode === "split") {
-    const share = 1 / positivePlayers.length;
+    const share = bustedCount / positivePlayers.length;
     positivePlayers.forEach((player) => addShare(shares, player.id, share));
     return shares;
   }
 
-  const bustedShare = 1 / bustedPlayers.length;
   bustedPlayers.forEach((busted) => {
     const taker = findKamichaTobashiPlayer(busted, positivePlayers);
     if (taker) {
-      addShare(shares, taker.id, bustedShare);
+      addShare(shares, taker.id, 1);
     }
   });
 
@@ -2499,6 +2539,23 @@ function determineTobashiShares(hand, bustedPlayers) {
 
 function addShare(shares, playerId, value) {
   shares[playerId] = Number((Number(shares[playerId] || 0) + value).toFixed(4));
+}
+
+function distributeTobashiAwards(bustedIds, tobashiIds) {
+  const shares = {};
+  if (!bustedIds.length || !tobashiIds.length) {
+    return shares;
+  }
+
+  const share = bustedIds.length / tobashiIds.length;
+  tobashiIds.forEach((playerId) => addShare(shares, playerId, share));
+  return shares;
+}
+
+function getTobashiPlayerIds(match) {
+  const explicitIds = Array.isArray(match.tobashiIds) ? match.tobashiIds : [];
+  const sharedIds = Object.keys(match.tobashiShares || {}).filter((playerId) => Number(match.tobashiShares[playerId] || 0) > 0);
+  return Array.from(new Set([...explicitIds, ...sharedIds]));
 }
 
 function findKamichaTobashiPlayer(bustedPlayer, positivePlayers) {
@@ -2597,7 +2654,7 @@ async function buildShareUrl(options = {}) {
     };
   }
 
-  const url = new URL("./share.html?v=35", window.location.href);
+  const url = new URL("./share.html?v=36", window.location.href);
   if (options.jsonDownload) {
     url.searchParams.set("download", "json");
   }
@@ -2683,7 +2740,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=35", window.location.href);
+  const url = new URL("./share.html?v=36", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
@@ -3030,7 +3087,7 @@ function getAggregateRows(matches) {
       row.secondOrBetterCount += rank <= 2 ? 1 : 0;
       row.avoidLastCount += rank < Math.max(1, (match.players || []).length) ? 1 : 0;
       row.tobiCount += Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id) ? 1 : 0;
-      row.tobashiCredit += Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
+      row.tobashiCredit += Number((match.tobashiShares && match.tobashiShares[player.id]) || 0) > 0 ? 1 : 0;
       row.tobashiBonusTotal += getPlayerTobashiBonus({ ...player, rank }, match);
       row.leagueScoreTotal += getPlayerLeagueScore({ ...player, rank }, match);
       row.chipDiffTotal += getPlayerChipDiff(player);
@@ -3083,7 +3140,8 @@ function formatTobashiPlayers(match) {
         return "";
       }
 
-      return share === 1 ? player.name : `${player.name} ${share.toFixed(2)}`;
+      const shareLabel = Number.isInteger(share) ? `${share}人分` : `${share.toFixed(2)}人分`;
+      return share === 1 ? player.name : `${player.name} ${shareLabel}`;
     })
     .filter(Boolean)
     .join("、");
