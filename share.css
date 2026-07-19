@@ -329,9 +329,9 @@ h2 {
 
 .standing-row {
   display: grid;
-  grid-template-columns: 48px minmax(128px, 1.2fr) repeat(17, minmax(76px, 0.8fr));
+  grid-template-columns: 48px minmax(128px, 1.2fr) repeat(18, minmax(76px, 0.8fr));
   align-items: center;
-  min-width: 1580px;
+  min-width: 1660px;
   min-height: 52px;
   gap: 8px;
   padding: 9px 10px;

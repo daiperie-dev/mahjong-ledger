@@ -6,6 +6,7 @@ const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{8,80}$/;
 const STARTING_SCORE = 25000;
 const RETURN_SCORE = 30000;
 const STARTING_CHIPS = 20;
+const CHIP_SCORE_VALUE = 3;
 const PARTICIPANT_NAME_MAX_LENGTH = 24;
 const PARTICIPANT_LIMIT = 64;
 const ROUNDS = ["東1局", "東2局", "東3局", "東4局", "南1局", "南2局", "南3局", "南4局"];
@@ -41,7 +42,7 @@ const SETTINGS = [
   { key: "autoDepositPayout", label: "供託払い出し", type: "checkbox" },
   { key: "autoRiichiDeposit", label: "流局リーチ供託", type: "checkbox" },
   { key: "autoDrawTenpaiPayments", label: "流局聴牌料", type: "checkbox" },
-  { key: "autoRiichiDealIn", label: "立直放銃1000点", type: "checkbox" },
+  { key: "autoRiichiDealIn", label: "和了時リーチ棒精算", type: "checkbox" },
   { key: "autoEndSouth4", label: "南4局終了保存", type: "checkbox" },
   { key: "tobiEnabled", label: "トビ終了", type: "checkbox" },
   { key: "tobiThreshold", label: "トビ基準", type: "number" },
@@ -976,6 +977,8 @@ function renderMetricLedger(rows) {
   const metrics = [
     { label: "半荘数", value: (row) => row.games },
     { label: "合計スコア", value: (row) => formatSigned(row.totalLeagueScore), tone: (row) => toneClass(row.totalLeagueScore) },
+    { label: "チップ換算", value: (row) => formatChipScorePair(row.totalChipDiff, row.totalChipScore), tone: (row) => toneClass(row.totalChipScore) },
+    { label: "チップ込み合算", value: (row) => formatSigned(row.totalCombinedScore), tone: (row) => toneClass(row.totalCombinedScore) },
     { label: "平均順位", value: (row) => row.averageRank.toFixed(2) },
     { label: "トップ率", value: (row) => formatRateValue(row.topRate), tone: (row) => rateToneClass(row.topRate, medians.topRate) },
     { label: "連対率", value: (row) => formatRateValue(row.rentaiRate), tone: (row) => rateToneClass(row.rentaiRate, medians.rentaiRate) },
@@ -1017,8 +1020,9 @@ function renderMetricLedger(rows) {
 function getLedgerColumns(settings = state.settings || {}) {
   const columns = [
     { key: "rank", label: "順位" },
-    { key: "chip", label: "チップ" },
+    { key: "chip", label: "チップ 枚/点" },
     { key: "leagueScore", label: "スコア" },
+    { key: "combinedScore", label: "合算" },
   ];
 
   if (settings.ledgerShowTobi) {
@@ -1126,9 +1130,11 @@ function renderMatchLedgerTotalCell(columnKey, total) {
     case "rank":
       return `<td>${total.rank || ""}</td>`;
     case "chip":
-      return `<td class="${toneClass(total.chip)}">${formatSigned(total.chip)}</td>`;
+      return `<td class="${toneClass(total.chipScore)}">${formatChipScorePair(total.chip, total.chipScore)}</td>`;
     case "leagueScore":
       return `<td class="${toneClass(total.score)}">${formatSigned(total.score)}</td>`;
+    case "combinedScore":
+      return `<td class="${toneClass(total.combinedScore)}">${formatSigned(total.combinedScore)}</td>`;
     default:
       return `<td></td>`;
   }
@@ -1153,9 +1159,11 @@ function getMatchLedgerTotalCsvCells(total, columns = getLedgerColumns()) {
       case "rank":
         return total.rank || "";
       case "chip":
-        return formatSigned(total.chip);
+        return formatChipScorePair(total.chip, total.chipScore);
       case "leagueScore":
         return formatSigned(total.score);
+      case "combinedScore":
+        return formatSigned(total.combinedScore);
       default:
         return "";
     }
@@ -1165,7 +1173,7 @@ function getMatchLedgerTotalCsvCells(total, columns = getLedgerColumns()) {
 function getMatchLedgerPlayerTotals(matches, sheetPlayers) {
   const totals = new Map();
   sheetPlayers.forEach((player) => {
-    totals.set(player.key, { key: player.key, name: player.name, score: 0, chip: 0, rank: "" });
+    totals.set(player.key, { key: player.key, name: player.name, score: 0, chip: 0, chipScore: 0, combinedScore: 0, rank: "" });
   });
 
   matches.forEach((match) => {
@@ -1181,7 +1189,14 @@ function getMatchLedgerPlayerTotals(matches, sheetPlayers) {
     });
   });
 
-  const rankedTotals = Array.from(totals.values()).sort((a, b) => b.score - a.score || b.chip - a.chip || a.name.localeCompare(b.name, "ja"));
+  totals.forEach((total) => {
+    total.chipScore = getChipScore(total.chip);
+    total.combinedScore = total.score + total.chipScore;
+  });
+
+  const rankedTotals = Array.from(totals.values()).sort(
+    (a, b) => b.combinedScore - a.combinedScore || b.score - a.score || a.name.localeCompare(b.name, "ja")
+  );
   rankedTotals.forEach((total, index) => {
     total.rank = index + 1;
   });
@@ -1192,7 +1207,9 @@ function getMatchLedgerPlayerTotals(matches, sheetPlayers) {
 function getMatchLedgerCell(columnKey, player, match) {
   const rank = player.rank || getRanksForPlayers(match.players || []).get(player.id) || "";
   const chipDiff = getPlayerChipDiff(player);
+  const chipScore = getChipScore(chipDiff);
   const leagueScore = getPlayerLeagueScore(player, match);
+  const combinedScore = leagueScore + chipScore;
   const tobashiShare = Number((match.tobashiShares && match.tobashiShares[player.id]) || 0);
   const isBusted = Array.isArray(match.bustedIds) && match.bustedIds.includes(player.id);
   const tobashiBonus = getPlayerTobashiBonus(player, match);
@@ -1204,9 +1221,11 @@ function getMatchLedgerCell(columnKey, player, match) {
     case "rank":
       return { text: String(rank || ""), csv: rank || "" };
     case "chip":
-      return { text: formatSigned(chipDiff), csv: formatSigned(chipDiff), className: toneClass(chipDiff) };
+      return { text: formatChipScorePair(chipDiff, chipScore), csv: formatChipScorePair(chipDiff, chipScore), className: toneClass(chipScore) };
     case "leagueScore":
       return { text: formatSigned(leagueScore), csv: formatSigned(leagueScore), className: toneClass(leagueScore) };
+    case "combinedScore":
+      return { text: formatSigned(combinedScore), csv: formatSigned(combinedScore), className: toneClass(combinedScore) };
     case "tobi":
       return { text: isBusted ? "1" : "", csv: isBusted ? 1 : "" };
     case "tobashi":
@@ -1518,10 +1537,10 @@ function renderDayScoreStrip(rows) {
   }
 
   return `
-    <div class="day-score-strip" aria-label="日内総合スコア">
-      <span>日内総合スコア</span>
+    <div class="day-score-strip" aria-label="日内チップ込み合算">
+      <span>日内チップ込み合算</span>
       ${rows
-        .map((row) => `<strong class="${toneClass(row.totalLeagueScore)}">${escapeHtml(row.name)} ${formatSigned(row.totalLeagueScore)}</strong>`)
+        .map((row) => `<strong class="${toneClass(row.totalCombinedScore)}">${escapeHtml(row.name)} ${formatSigned(row.totalCombinedScore)}</strong>`)
         .join("")}
     </div>
   `;
@@ -1552,7 +1571,7 @@ function renderScoreTrend(matches) {
   chronological.forEach((match, index) => {
     (match.players || []).forEach((player) => {
       const key = ensurePlayer(player.name);
-      totals.set(key, Number(totals.get(key) || 0) + getPlayerLeagueScore(player, match));
+      totals.set(key, Number(totals.get(key) || 0) + getPlayerCombinedScore(player, match));
     });
 
     names.forEach((name) => {
@@ -1609,13 +1628,13 @@ function renderScoreTrend(matches) {
     .join("");
 
   return `
-    <section class="trend-panel" aria-label="スコア推移">
+    <section class="trend-panel" aria-label="チップ込みスコア推移">
       <div class="trend-head">
-        <span>スコア推移</span>
+        <span>チップ込みスコア推移</span>
         <strong>${chronological.length}半荘</strong>
       </div>
       <div class="trend-body">
-        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="半荘スコアの累積推移">
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="チップ込み半荘スコアの累積推移">
           <line x1="${padLeft}" y1="${zeroY.toFixed(1)}" x2="${width - padRight}" y2="${zeroY.toFixed(1)}" class="trend-zero" />
           <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${height - padBottom}" class="trend-axis" />
           <line x1="${padLeft}" y1="${height - padBottom}" x2="${width - padRight}" y2="${height - padBottom}" class="trend-axis" />
@@ -1964,10 +1983,16 @@ function calculateAutoAdjustments() {
       nextRiichiSticks = 0;
     }
 
-    if (getSetting("autoRiichiDealIn") && draft.result === "ron" && loserId && isPlayerRiichi(loserId)) {
-      scoreDeltas[loserId] -= RIICHI_STICK_POINTS;
-      scoreDeltas[winnerId] += RIICHI_STICK_POINTS;
-      notes.push(`立直放銃: ${formatNumber(RIICHI_STICK_POINTS)}`);
+    if (getSetting("autoRiichiDealIn")) {
+      const currentRiichiPlayers = state.players.filter((player) => isPlayerRiichi(player.id));
+      currentRiichiPlayers.forEach((player) => {
+        scoreDeltas[player.id] -= RIICHI_STICK_POINTS;
+      });
+      if (currentRiichiPlayers.length > 0) {
+        const riichiPoints = currentRiichiPlayers.length * RIICHI_STICK_POINTS;
+        scoreDeltas[winnerId] += riichiPoints;
+        notes.push(`和了時リーチ棒: ${currentRiichiPlayers.length}本 +${formatNumber(riichiPoints)}`);
+      }
     }
 
     if (!getSetting("autoRoundRules")) {
@@ -2572,7 +2597,7 @@ async function buildShareUrl(options = {}) {
     };
   }
 
-  const url = new URL("./share.html?v=34", window.location.href);
+  const url = new URL("./share.html?v=35", window.location.href);
   if (options.jsonDownload) {
     url.searchParams.set("download", "json");
   }
@@ -2658,7 +2683,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=34", window.location.href);
+  const url = new URL("./share.html?v=35", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
@@ -2868,6 +2893,8 @@ function buildSheetCsv(matches) {
   [
     ["半荘数", (row) => row.games],
     ["合計スコア", (row) => formatSigned(row.totalLeagueScore)],
+    ["チップ 枚/点", (row) => formatChipScorePair(row.totalChipDiff, row.totalChipScore)],
+    ["チップ込み合算", (row) => formatSigned(row.totalCombinedScore)],
     ["平均順位", (row) => row.averageRank.toFixed(2)],
     ["トップ率", (row) => formatRateValue(row.topRate)],
     ["連対率", (row) => formatRateValue(row.rentaiRate)],
@@ -3031,6 +3058,8 @@ function getAggregateRows(matches) {
       totalLeagueScore: row.leagueScoreTotal,
       averageLeagueScore: row.games ? row.leagueScoreTotal / row.games : 0,
       totalChipDiff: row.chipDiffTotal,
+      totalChipScore: getChipScore(row.chipDiffTotal),
+      totalCombinedScore: row.leagueScoreTotal + getChipScore(row.chipDiffTotal),
       averageScore: row.games ? row.scoreTotal / row.games : 0,
       totalScoreDiff: row.scoreDiffTotal,
       callRate: row.hands ? (row.calls / row.hands) * 100 : 0,
@@ -3038,7 +3067,7 @@ function getAggregateRows(matches) {
       winRate: row.hands ? (row.wins / row.hands) * 100 : 0,
       dealInRate: row.hands ? (row.dealIns / row.hands) * 100 : 0,
     }))
-    .sort((a, b) => b.totalLeagueScore - a.totalLeagueScore || a.averageRank - b.averageRank || b.averageScore - a.averageScore);
+    .sort((a, b) => b.totalCombinedScore - a.totalCombinedScore || b.totalLeagueScore - a.totalLeagueScore || a.averageRank - b.averageRank || b.averageScore - a.averageScore);
 }
 
 function formatTobashiPlayers(match) {
@@ -3075,6 +3104,18 @@ function getPlayerChipDiff(player) {
   }
 
   return 0;
+}
+
+function getChipScore(chipCount) {
+  return Number((Number(chipCount || 0) * CHIP_SCORE_VALUE).toFixed(2));
+}
+
+function getPlayerCombinedScore(player, match) {
+  return getPlayerLeagueScore(player, match) + getChipScore(getPlayerChipDiff(player));
+}
+
+function formatChipScorePair(chipCount, chipScore = getChipScore(chipCount)) {
+  return `${formatSigned(chipCount)} / ${formatSigned(chipScore)}`;
 }
 
 function getPlayerRoundedScore(player) {
