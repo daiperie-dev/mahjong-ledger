@@ -1574,6 +1574,13 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   gap: 5px;
 }
 
+.match-video-link {
+  width: fit-content;
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
 .match-headline {
   align-items: center;
 }
@@ -1613,7 +1620,7 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
 
 .match-edit-reason {
   display: grid;
-  grid-template-columns: 82px minmax(0, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   color: var(--muted);

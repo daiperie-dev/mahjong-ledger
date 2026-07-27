@@ -1364,6 +1364,7 @@ function renderMatchEditItem(match) {
   const top = players[0] || null;
   const finishedAt = formatDateTime(match.finishedAt);
   const tobashi = formatTobashiPlayers(match);
+  const videoUrl = normalizeYouTubeVideoUrl(match.videoUrl);
   const matchSettings = normalizeSettingsPayload(match.settings || state.settings || {});
   const scoreTotal = getMatchLeagueScoreTotal(match);
   const chipTotal = (match.players || []).reduce((sum, player) => sum + getPlayerChipDiff(player), 0);
@@ -1383,6 +1384,7 @@ function renderMatchEditItem(match) {
       </div>
       <span>${escapeHtml(match.endReason || "保存")} / ${finishedAt}</span>
       ${tobashi ? `<span>トバし: ${escapeHtml(tobashi)}</span>` : ""}
+      ${videoUrl ? `<a class="match-video-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer">対局映像を開く</a>` : ""}
       <small>トップ: ${escapeHtml(top ? top.name : "")} ${top ? formatNumber(top.score) : ""}</small>
       <small>半荘ルール: トビ賞${matchSettings.tobashiBonusEnabled ? "有" : "無"}</small>
       <small>スコア合計${formatSigned(scoreTotal)} / チップ合計${formatSigned(chipTotal)}</small>
@@ -1406,6 +1408,17 @@ function renderMatchEditPanel(match) {
       <label class="match-edit-reason">
         <span>終了理由</span>
         <input type="text" data-match-edit-reason="${escapeHtml(match.id)}" value="${escapeHtml(match.endReason || "")}" />
+      </label>
+      <label class="match-edit-reason">
+        <span>対局映像URL</span>
+        <input
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="https://youtu.be/..."
+          data-match-edit-video="${escapeHtml(match.id)}"
+          value="${escapeHtml(match.videoUrl || "")}"
+        />
       </label>
       <div class="match-edit-rules">
         <label class="match-edit-rule">
@@ -2204,6 +2217,14 @@ function saveMatchEdits(matchId) {
     return;
   }
 
+  const videoInput = findMatchEditVideoInput(matchId);
+  const rawVideoUrl = videoInput ? videoInput.value.trim() : String(match.videoUrl || "").trim();
+  const videoUrl = normalizeYouTubeVideoUrl(rawVideoUrl);
+  if (rawVideoUrl && !videoUrl) {
+    window.alert("対局映像URLはYouTubeの動画URLを入力してください。");
+    return;
+  }
+
   const updatedPlayers = (match.players || []).map((player) => {
     const chipDiff = roundChipValue(readMatchEditNumber(matchId, player.id, "chipDiff", getPlayerChipDiff(player)));
     return {
@@ -2236,6 +2257,7 @@ function saveMatchEdits(matchId) {
     bustedIds,
     tobashiIds,
     tobashiShares,
+    videoUrl,
     players: updatedPlayers,
     settings: updatedSettings,
   });
@@ -2264,6 +2286,10 @@ function findMatchEditInput(matchId, playerId, field) {
 
 function findMatchEditReasonInput(matchId) {
   return Array.from(document.querySelectorAll("[data-match-edit-reason]")).find((input) => input.dataset.matchEditReason === matchId);
+}
+
+function findMatchEditVideoInput(matchId) {
+  return Array.from(document.querySelectorAll("[data-match-edit-video]")).find((input) => input.dataset.matchEditVideo === matchId);
 }
 
 function readMatchEditCheckbox(matchId, settingKey, fallback = false) {
@@ -2434,6 +2460,7 @@ function archiveCurrentMatch(endInfo) {
     bustedIds: info.bustedIds || [],
     tobashiIds: info.tobashiIds || [],
     tobashiShares: info.tobashiShares || {},
+    videoUrl: "",
     players: playerScores.map(({ player, rank, scoreDiff, roundedScore, uma, tobashiBonus, baseLeagueScore }) => {
       const playerOkaAdjustment = rank === 1 ? okaAdjustment : 0;
       return {
@@ -2654,7 +2681,7 @@ async function buildShareUrl(options = {}) {
     };
   }
 
-  const url = new URL("./share.html?v=36", window.location.href);
+  const url = new URL("./share.html?v=37", window.location.href);
   if (options.jsonDownload) {
     url.searchParams.set("download", "json");
   }
@@ -2740,7 +2767,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=36", window.location.href);
+  const url = new URL("./share.html?v=37", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
@@ -2786,6 +2813,7 @@ function compactShareMatch(match) {
     b: Array.isArray(match.bustedIds) ? match.bustedIds : [],
     ti: Array.isArray(match.tobashiIds) ? match.tobashiIds : [],
     ts: match.tobashiShares || {},
+    u: normalizeYouTubeVideoUrl(match.videoUrl),
     s: pickShareSettings(match.settings || state.settings || {}),
     p: (match.players || []).map((player) => {
       const rankedPlayer = { ...player, rank: Number(player.rank || ranks.get(player.id) || 4) };
@@ -2904,6 +2932,7 @@ function importStateFile(event) {
       draft = createDraft(state);
       saveState();
       render();
+      syncRemoteShareAfterLocalSave();
       window.alert("JSONを読み込みました。");
     } catch {
       window.alert("JSONを読み込めませんでした。Mahjong Ledgerの書き出しファイルを選んでください。");
@@ -3548,6 +3577,41 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function getYouTubeVideoId(value) {
+  const raw = String(value || "").trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) {
+    return raw;
+  }
+
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return "";
+  }
+
+  const hostname = url.hostname.toLowerCase().replace(/^(?:www\.|m\.)/, "");
+  let candidate = "";
+
+  if (hostname === "youtu.be") {
+    candidate = url.pathname.split("/").filter(Boolean)[0] || "";
+  } else if (hostname === "youtube.com" || hostname === "youtube-nocookie.com") {
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (url.pathname === "/watch") {
+      candidate = url.searchParams.get("v") || "";
+    } else if (["embed", "shorts", "live"].includes(parts[0])) {
+      candidate = parts[1] || "";
+    }
+  }
+
+  return /^[A-Za-z0-9_-]{11}$/.test(candidate) ? candidate : "";
+}
+
+function normalizeYouTubeVideoUrl(value) {
+  const videoId = getYouTubeVideoId(value);
+  return videoId ? `https://youtu.be/${videoId}` : "";
 }
 
 function createActionMap(players) {

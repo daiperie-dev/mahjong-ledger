@@ -42,6 +42,7 @@ elements.importFile.addEventListener("change", handleImportFile);
 elements.csvButton.addEventListener("click", exportSheetCsv);
 elements.exportButton.addEventListener("click", exportStateJson);
 elements.jsonDownloadButton.addEventListener("click", exportStateJson);
+elements.matchList.addEventListener("click", handleMatchVideoClick);
 elements.scopeButtons.forEach((button) => {
   button.addEventListener("click", () => {
     currentScope = button.dataset.scope || "overall";
@@ -242,6 +243,7 @@ function expandSharedMatch(match) {
     bustedIds: Array.isArray(match.b) ? match.b : [],
     tobashiIds: Array.isArray(match.ti) ? match.ti : [],
     tobashiShares: match.ts || {},
+    videoUrl: normalizeYouTubeVideoUrl(match.u || match.videoUrl || ""),
     settings: normalizeSettings(match.s || {}),
     players: Array.isArray(match.p) ? match.p.map(expandSharedPlayer) : [],
   };
@@ -361,7 +363,7 @@ function render(state, source) {
       : currentScope === "today"
         ? `当日順位${dayLabel ? ` ${dayLabel}` : ""}`
         : "総合順位";
-  elements.matchesHeading.textContent = currentScope === "today" ? "当日半荘" : "半荘一覧";
+  elements.matchesHeading.textContent = currentScope === "today" ? "当日の対局映像" : "対局映像";
   elements.scopeButtons.forEach((button) => {
     button.setAttribute("aria-pressed", String((button.dataset.scope || "overall") === currentScope));
   });
@@ -395,7 +397,6 @@ function render(state, source) {
     ? renderScoreTrend(currentScope === "daily" ? matches : scopedMatches)
     : "";
   elements.matchList.innerHTML = scopedMatches.length ? renderMatches(scopedMatches) : renderEmpty("半荘保存後にここへ反映されます");
-  elements.matchList.innerHTML = "";
 }
 
 function renderJsonTransferBand(matchCount) {
@@ -834,47 +835,56 @@ function renderMatches(matches) {
   return matches
     .slice(0, 30)
     .map((match) => {
-      const players = getPlayersWithRanks(match);
-      const top = players[0] || null;
-      const tobashi = formatTobashiPlayers(match);
-      const busted = formatPlayersByIds(match.players || [], match.bustedIds || []);
-      const playerScores = players
-        .map(
-          (player) => {
-            const leagueScore = getPlayerLeagueScore(player, match);
-            const scoreClass = toneClass(leagueScore);
-            const chipDiff = getPlayerChipDiff(player);
-            const chipClass = toneClass(chipDiff);
-            const bonus = getPlayerTobashiBonus(player, match);
-            return `
-              <span>
-                <b>${player.rank}位 ${escapeHtml(player.name)}</b>
-                <strong class="${scoreClass}">${formatSigned(leagueScore)}</strong>
-                <small>${formatNumber(player.score)}点 / ウマ ${formatSigned(getPlayerUma(player, match))}${bonus ? ` / 賞 ${formatSigned(bonus)}` : ""}</small>
-                <small class="${chipClass}">チップ ${formatSigned(chipDiff)}</small>
-              </span>
-            `;
-          }
-        )
-        .join("");
+      const label = match.label || `半荘${match.number || ""}`;
+      const videoId = getYouTubeVideoId(match.videoUrl);
+      const videoUrl = videoId ? `https://youtu.be/${videoId}` : "";
 
       return `
-        <article class="match-item">
-          <div class="match-head">
-            <strong>${escapeHtml(match.label || `半荘${match.number || ""}`)}</strong>
+        <article class="match-video-item${videoId ? "" : " is-missing"}">
+          <div class="match-video-head">
+            <strong>${escapeHtml(label)}</strong>
             <span>${formatDate(match.finishedAt)}</span>
           </div>
-          <div class="match-meta">
-            <span>${escapeHtml(match.endReason || "保存済み")}</span>
-            ${top ? `<span>トップ ${escapeHtml(top.name)} ${formatSigned(getPlayerLeagueScore(top, match))}</span>` : ""}
-            ${busted ? `<span>トビ ${escapeHtml(busted)}</span>` : ""}
-            ${tobashi ? `<span>トバし ${escapeHtml(tobashi)}</span>` : ""}
-          </div>
-          <div class="score-strip">${playerScores}</div>
+          ${
+            videoId
+              ? `
+                <button
+                  class="match-video-frame match-video-load"
+                  type="button"
+                  data-youtube-video-id="${escapeHtml(videoId)}"
+                  aria-label="${escapeHtml(label)}の対局映像を再生"
+                >
+                  <img src="https://i.ytimg.com/vi/${escapeHtml(videoId)}/hqdefault.jpg" alt="" loading="lazy" />
+                </button>
+                <a class="match-video-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer">YouTubeで開く</a>
+              `
+              : `<div class="match-video-missing">未撮影</div>`
+          }
         </article>
       `;
     })
     .join("");
+}
+
+function handleMatchVideoClick(event) {
+  const button = event.target.closest("[data-youtube-video-id]");
+  if (!button) {
+    return;
+  }
+
+  const videoId = getYouTubeVideoId(button.dataset.youtubeVideoId);
+  if (!videoId) {
+    return;
+  }
+
+  const iframe = document.createElement("iframe");
+  iframe.className = "match-video-frame";
+  iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&autoplay=1`;
+  iframe.title = button.getAttribute("aria-label") || "対局映像";
+  iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+  iframe.referrerPolicy = "strict-origin-when-cross-origin";
+  iframe.allowFullscreen = true;
+  button.replaceWith(iframe);
 }
 
 function renderDailySummaries(matches) {
@@ -1523,4 +1533,39 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function getYouTubeVideoId(value) {
+  const raw = String(value || "").trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) {
+    return raw;
+  }
+
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return "";
+  }
+
+  const hostname = url.hostname.toLowerCase().replace(/^(?:www\.|m\.)/, "");
+  let candidate = "";
+
+  if (hostname === "youtu.be") {
+    candidate = url.pathname.split("/").filter(Boolean)[0] || "";
+  } else if (hostname === "youtube.com" || hostname === "youtube-nocookie.com") {
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (url.pathname === "/watch") {
+      candidate = url.searchParams.get("v") || "";
+    } else if (["embed", "shorts", "live"].includes(parts[0])) {
+      candidate = parts[1] || "";
+    }
+  }
+
+  return /^[A-Za-z0-9_-]{11}$/.test(candidate) ? candidate : "";
+}
+
+function normalizeYouTubeVideoUrl(value) {
+  const videoId = getYouTubeVideoId(value);
+  return videoId ? `https://youtu.be/${videoId}` : "";
 }
