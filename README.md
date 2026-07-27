@@ -8,7 +8,7 @@ iPadで麻雀対局中の点数、順位、副露率、リーチ率、和了率�
 node .\server.mjs
 ```
 
-ブラウザで `http://localhost:5173/?v=37` を開きます。
+ブラウザで `http://localhost:5173/?v=38` を開きます。
 
 iPadから同じWi-Fi内で開く場合は、起動時に表示される `iPad / LAN:` のURLを使います。
 
@@ -18,7 +18,7 @@ iPadから同じWi-Fi内で開く場合は、起動時に表示される `iPad /
 
 ## 共有
 
-`share.html?v=37` は読み取り専用の共有ページです。保存済み半荘にYouTube URLを登録すると、対局映像も表示できます。
+`share.html?v=38` は読み取り専用の共有ページです。保存済み半荘にYouTube URLを登録すると、対局映像も表示できます。
 
 Googleスプレッドシートで共有する場合は、本体または共有ページのCSV出力を使います。公式iPad 1台で記録し、CSVをスプレッドシートへ取り込んで読み取り専用共有する運用を推奨します。
 
@@ -42,7 +42,7 @@ Googleスプレッドシートで共有する場合は、本体または共有�
 
 ## Short Share Links
 
-The app can use an external Share API to store snapshots and send short `share.html?v=37&id=...` links.
+The app can use an external Share API to store snapshots and send short `share.html?v=38&id=...` links.
 
 - The recording iPad stores the Share API URL and write token in local storage.
 - The deployed Share API URL is `https://mahjong-ledger-share.daiperie-mahjong-ledger.workers.dev`.

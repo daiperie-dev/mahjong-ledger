@@ -1076,7 +1076,7 @@ function renderMatchLedger(matches) {
           ${chronological
             .map((match) => `
               <tr>
-                <th>${escapeHtml(match.label || `半荘${match.number || ""}`)}</th>
+                <th>${renderMatchLedgerLabel(match)}</th>
                 <td>${escapeHtml(formatDateTime(match.finishedAt))}</td>
                 ${sheetPlayers.map((player) => renderMatchLedgerPlayerCells(match, player.key, columns)).join("")}
               </tr>
@@ -1088,6 +1088,21 @@ function renderMatchLedger(matches) {
         </tfoot>
       </table>
     </div>
+  `;
+}
+
+function renderMatchLedgerLabel(match) {
+  const label = match.label || `半荘${match.number || ""}`;
+  const videoUrl = normalizeYouTubeVideoUrl(match.videoUrl);
+  return `
+    <span class="match-ledger-label">
+      <span>${escapeHtml(label)}</span>
+      ${
+        videoUrl
+          ? `<a class="youtube-icon-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(label)}の対局映像をYouTubeで開く" title="対局映像をYouTubeで開く"><span aria-hidden="true"></span></a>`
+          : ""
+      }
+    </span>
   `;
 }
 
@@ -2681,7 +2696,7 @@ async function buildShareUrl(options = {}) {
     };
   }
 
-  const url = new URL("./share.html?v=37", window.location.href);
+  const url = new URL("./share.html?v=38", window.location.href);
   if (options.jsonDownload) {
     url.searchParams.set("download", "json");
   }
@@ -2767,7 +2782,7 @@ async function persistRemoteSnapshot(snapshot, config, shareId = "") {
 }
 
 function makeRemoteShareUrl(id, config) {
-  const url = new URL("./share.html?v=37", window.location.href);
+  const url = new URL("./share.html?v=38", window.location.href);
   url.searchParams.set("id", id);
 
   const defaultApiBaseUrl = normalizeShareApiBaseUrl(DEFAULT_REMOTE_SHARE_API_BASE_URL);
@@ -2778,13 +2793,18 @@ function makeRemoteShareUrl(id, config) {
   return url.toString();
 }
 
-function syncRemoteShareAfterLocalSave() {
+async function syncRemoteShareAfterLocalSave() {
   const config = normalizeShareConfig(shareConfig);
   if (!config.apiBaseUrl || !config.writeToken || !isValidShareId(config.shareId)) {
-    return;
+    return { configured: false, updated: false };
   }
 
-  buildRemoteShareUrl(createShareSnapshot(), { createOnUpdateFailure: false, updateOnly: true }).catch(() => {});
+  try {
+    const result = await buildRemoteShareUrl(createShareSnapshot(), { createOnUpdateFailure: false, updateOnly: true });
+    return { configured: true, updated: Boolean(result.url) };
+  } catch {
+    return { configured: true, updated: false };
+  }
 }
 
 function isValidShareId(value) {
@@ -2920,11 +2940,12 @@ function importStateFile(event) {
   }
 
   const reader = new FileReader();
-  reader.addEventListener("load", () => {
+  reader.addEventListener("load", async () => {
     try {
       const importedState = normalizeStatePayload(JSON.parse(String(reader.result || "{}")));
       const matchCount = Array.isArray(importedState.matches) ? importedState.matches.length : 0;
-      if (!window.confirm(`この端末の保存データを、読み込んだJSONで置き換えます。保存済み半荘 ${matchCount} 件を読み込みますか？`)) {
+      const videoCount = (importedState.matches || []).filter((match) => normalizeYouTubeVideoUrl(match.videoUrl)).length;
+      if (!window.confirm(`この端末の保存データを、読み込んだJSONで置き換えます。\n保存済み半荘 ${matchCount}件 / 対局映像 ${videoCount}件\n読み込みますか？`)) {
         return;
       }
 
@@ -2932,8 +2953,16 @@ function importStateFile(event) {
       draft = createDraft(state);
       saveState();
       render();
-      syncRemoteShareAfterLocalSave();
-      window.alert("JSONを読み込みました。");
+      const syncResult = await syncRemoteShareAfterLocalSave();
+      if (matchCount > 0 && videoCount === 0) {
+        window.alert("JSONを読み込みましたが、対局映像URLは0件です。動画入りJSONのファイル名に「with-videos」が含まれているか確認してください。");
+      } else if (syncResult.updated) {
+        window.alert(`JSONを読み込み、対局映像 ${videoCount}件を共有ページへ反映しました。`);
+      } else if (syncResult.configured) {
+        window.alert(`JSONを読み込みました。対局映像は${videoCount}件です。共有ページの更新に失敗したため、上部の「共有リンク」を一度押してください。`);
+      } else {
+        window.alert(`JSONを読み込みました。対局映像は${videoCount}件です。共有設定後に「共有リンク」を押すと共有ページへ反映されます。`);
+      }
     } catch {
       window.alert("JSONを読み込めませんでした。Mahjong Ledgerの書き出しファイルを選んでください。");
     } finally {

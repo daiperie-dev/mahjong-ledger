@@ -1292,6 +1292,41 @@ body[data-theme="dark"] .row-tsumo-shortcuts button {
   background: var(--surface-strong);
 }
 
+.match-ledger-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.youtube-icon-link {
+  position: relative;
+  display: inline-block;
+  width: 25px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  background: #ff0033;
+  vertical-align: middle;
+}
+
+.youtube-icon-link span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid #fff;
+  transform: translate(-40%, -50%);
+}
+
+.youtube-icon-link:focus-visible {
+  outline: 3px solid rgba(255, 0, 51, 0.25);
+  outline-offset: 2px;
+}
+
 .ledger-table tfoot th,
 .ledger-table tfoot td {
   background: var(--accent-soft);

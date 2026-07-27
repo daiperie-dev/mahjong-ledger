@@ -631,7 +631,7 @@ function renderMatchLedger(matches) {
           ${chronological
             .map((match) => `
               <tr>
-                <th>${escapeHtml(match.label || `半荘${match.number || ""}`)}</th>
+                <th>${renderMatchLedgerLabel(match)}</th>
                 <td>${escapeHtml(formatDate(match.finishedAt))}</td>
                 ${sheetPlayers.map((player) => renderMatchLedgerPlayerCells(match, player.key, columns)).join("")}
               </tr>
@@ -643,6 +643,21 @@ function renderMatchLedger(matches) {
         </tfoot>
       </table>
     </div>
+  `;
+}
+
+function renderMatchLedgerLabel(match) {
+  const label = match.label || `半荘${match.number || ""}`;
+  const videoUrl = normalizeYouTubeVideoUrl(match.videoUrl);
+  return `
+    <span class="match-ledger-label">
+      <span>${escapeHtml(label)}</span>
+      ${
+        videoUrl
+          ? `<a class="youtube-icon-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(label)}の対局映像をYouTubeで開く" title="対局映像をYouTubeで開く"><span aria-hidden="true"></span></a>`
+          : ""
+      }
+    </span>
   `;
 }
 
